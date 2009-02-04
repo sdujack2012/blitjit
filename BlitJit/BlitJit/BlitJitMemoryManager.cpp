@@ -31,6 +31,8 @@
 #include <AsmJit/AsmJitConfig.h>
 #include <AsmJit/AsmJitVM.h>
 
+#include <string.h>
+
 namespace BlitJit {
 
 static SysUInt getDefaultVSize()

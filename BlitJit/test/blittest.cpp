@@ -45,9 +45,9 @@ int main(int argc, char* argv[])
     BlitJit::Generator gen(a);
 
     gen.blitSpan(
-      BlitJit::PixelFormat::ARGB32, 
-      BlitJit::PixelFormat::ARGB32, 
-      BlitJit::Operation::CombineCopy);
+      BlitJit::Api::pixelFormats[BlitJit::PixelFormat::ARGB32],
+      BlitJit::Api::pixelFormats[BlitJit::PixelFormat::ARGB32],
+      BlitJit::Api::operations[BlitJit::Operation::CombineCopy]);
 
     fn = reinterpret_cast<BlitJit::BlitSpanFn>
       (memmgr.submit(a.pData, a.codeSize()));
@@ -69,8 +69,6 @@ int main(int argc, char* argv[])
   dump32(dst, Size, "dst");
   dump32(src, Size, "src");
   printf("\n");
-
-  system("pause");
 
   return 0;
 }

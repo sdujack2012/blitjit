@@ -39,50 +39,91 @@ namespace BlitJit {
 //! @brief Pixel format.
 struct PixelFormat
 {
-  char name[32];
-  UInt32 id;
+  inline const char* name() const { return _name; }
+  inline UInt32 id() const { return _id; }
 
-  UInt32 depth;
+  inline UInt32 depth() const { return _depth; }
 
-  UInt32 rMask;
-  UInt32 gMask;
-  UInt32 bMask;
-  UInt32 aMask;
+  inline UInt32 rMask32() const { return _rMask; }
+  inline UInt32 gMask32() const { return _gMask; }
+  inline UInt32 bMask32() const { return _bMask; }
+  inline UInt32 aMask32() const { return _aMask; }
 
-  UInt32 rShift;
-  UInt32 gShift;
-  UInt32 bShift;
-  UInt32 aShift;
+  inline UInt32 rShift32() const { return _rShift; }
+  inline UInt32 gShift32() const { return _gShift; }
+  inline UInt32 bShift32() const { return _bShift; }
+  inline UInt32 aShift32() const { return _aShift; }
 
-  UInt8 rBytePos;
-  UInt8 gBytePos;
-  UInt8 bBytePos;
-  UInt8 aBytePos;
+  inline UInt32 rBytePos() const { return _rBytePos; }
+  inline UInt32 gBytePos() const { return _gBytePos; }
+  inline UInt32 bBytePos() const { return _bBytePos; }
+  inline UInt32 aBytePos() const { return _aBytePos; }
 
-  UInt32 isPremultiplied : 1;
-  UInt32 isIndexed : 1;
+  inline bool isPremultiplied() const { return static_cast<bool>(_isPremultiplied); }
 
+  inline bool isRgb() const
+  {
+    return _rMask != 0 && _gMask != 0 && _bMask != 0;
+  }
+  
+  inline bool isGrey() const
+  {
+    return _rMask == _gMask && _gMask == _bMask;
+  }
+
+  inline bool isAlpha() const
+  {
+    return _aMask != 0;
+  }
+
+  //! @brief Pixel format IDs.
   enum Id
   {
-    ARGB32 = 0,
-    PRGB32 = 1,
-    XRGB32 = 2,
+    ARGB32,
+    PRGB32,
+    XRGB32,
+
+    RGB24,
+    BGR24,
 
     Count
   };
+
+  // variables, not private, because this is structure usually read-only.
+
+  char _name[32];
+  UInt32 _id;
+
+  UInt32 _depth;
+
+  UInt32 _rMask;
+  UInt32 _gMask;
+  UInt32 _bMask;
+  UInt32 _aMask;
+
+  UInt32 _rShift;
+  UInt32 _gShift;
+  UInt32 _bShift;
+  UInt32 _aShift;
+
+  UInt32 _rBytePos;
+  UInt32 _gBytePos;
+  UInt32 _bBytePos;
+  UInt32 _aBytePos;
+
+  UInt32 _isPremultiplied : 1;
 };
 
 //! @brief Operation.
 struct Operation
 {
-  char name[32];
-  UInt32 id;
+  inline const char* name() const { return _name; }
+  inline UInt32 id() const { return _id; }
 
-  UInt32 srcPixelUsed : 1;
-  UInt32 dstPixelUsed : 1;
-
-  UInt32 srcAlphaUsed : 1;
-  UInt32 dstAlphaUsed : 1;
+  inline bool srcPixelUsed() const { return _srcPixelUsed; }
+  inline bool dstPixelUsed() const { return _dstPixelUsed; }
+  inline bool srcAlphaUsed() const { return _srcAlphaUsed; }
+  inline bool dstAlphaUsed() const { return _dstAlphaUsed; }
 
   enum Id
   {
@@ -95,8 +136,8 @@ struct Operation
     //! @brief Blend source to dest using source alpha value.
     CombineBlend = 1,
 
+#if 0 // not used for now
     // [Destination WITH Alpha Channel]
-
     //! @brief Clear alpha value.
     CompositeClear,
     CompositeSrc,
@@ -112,11 +153,21 @@ struct Operation
     CompositeXor,
     CompositeAdd,
     CompositeSaturate,
-
+#endif
     Count
   };
-};
 
+  // variables, not private, because this is structure usually read-only.
+
+  char _name[32];
+  UInt32 _id;
+
+  UInt32 _srcPixelUsed : 1;
+  UInt32 _dstPixelUsed : 1;
+
+  UInt32 _srcAlphaUsed : 1;
+  UInt32 _dstAlphaUsed : 1;
+};
 
 //! @}
 

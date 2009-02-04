@@ -37,6 +37,8 @@ namespace BlitJit {
 //! @addtogroup BlitJit_Main
 //! @{
 
+typedef void (BLITJIT_CALL *FillSpanFn)(
+  void* dst, const UInt32 src, SysUInt len);
 typedef void (BLITJIT_CALL *BlitSpanFn)(
   void* dst, const void* src, SysUInt len);
 typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
@@ -45,24 +47,62 @@ typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
 struct Generator
 {
   Generator(AsmJit::X86& a);
-  ~Generator();
+  virtual ~Generator();
+
+  // [FillSpan]
+
+  //! @brief Generate fill span function.
+  virtual void fillSpan(const PixelFormat& dst, const PixelFormat& src, const Operation& op);
 
   //! @brief Emit function prolog and fetch parameters.
   //!
+  //! Saves registers:
+  //! - ebx, edi
+  //!
   //! Parameters:
-  //! - dst = edi
-  //! - src = esi
+  //! - [ptr dst] = edi
+  //! - src = eax
   //! - len = ecx
-  virtual void entry();
+  virtual void fillSpanEntry();
 
   //! @brief Emit function epilog and restore preserved registers
-  virtual void leave();
+  //!
+  //! Loads registers:
+  //! - edi, ebx
+  //!
+  virtual void fillSpanLeave();
 
-  //! @brief Generate span level blit function.
-  virtual void blitSpan(UInt32 dId, UInt32 sId, UInt32 oId);
+  virtual void fillSpanMemSet32();
+
+  // [BlitSpan]
+
+  //! @brief Generate blit span function.
+  virtual void blitSpan(const PixelFormat& dst, const PixelFormat& src, const Operation& op);
+
+  //! @brief Emit function prolog and fetch parameters.
+  //!
+  //! Saves registers:
+  //! - ebx, edi, esi
+  //!
+  //! Parameters:
+  //! - [ptr dst] = edi
+  //! - [ptr src] = esi
+  //! - len = ecx
+  virtual void blitSpanEntry();
+
+  //! @brief Emit function epilog and restore preserved registers
+  //!
+  //! Loads registers:
+  //! - esi, edi, ebx
+  //!
+  virtual void blitSpanLeave();
 
   //! @brief Assembler stream.
   AsmJit::X86& a;
+  //! @brief Begin of function after prolog.
+  AsmJit::Label L_Begin;
+  //! @brief Label before epilog.
+  AsmJit::Label L_Leave;
 
 private:
   // disable copy
