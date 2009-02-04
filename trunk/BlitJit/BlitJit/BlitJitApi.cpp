@@ -30,17 +30,20 @@ namespace BlitJit {
 
 const PixelFormat Api::pixelFormats[PixelFormat::Count] = 
 {
-  // Name   | Id                 | D | rMask     | gMask     | bMask     | aMask     | rgbaShift     | rgbaBytePos   | premul | index |
-  { "ARGB32", PixelFormat::ARGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 16, 8 , 0 , 24, 2 , 1 , 0 , 3 , false  , false },
-  { "PRGB32", PixelFormat::PRGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 16, 8 , 0 , 24, 2 , 1 , 0 , 3 , true   , false },
-  { "XRGB32", PixelFormat::XRGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0x00000000, 16, 8 , 0 , 0 , 2 , 1 , 0 , 3 , false  , false },
+  // Name   | Id                 | D | rMask     | gMask     | bMask     | aMask     | rgbaShift       | rgbaBytePos   | premul |
+  { "ARGB32", PixelFormat::ARGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 16,  8 ,  0 , 24, 2 , 1 , 0 , 3 , false  },
+  { "PRGB32", PixelFormat::PRGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 16,  8 ,  0 , 24, 2 , 1 , 0 , 3 , true   },
+  { "XRGB32", PixelFormat::XRGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0x00000000, 16,  8 ,  0 ,  0, 2 , 1 , 0 , 3 , false  },
+
+  { "RGB24" , PixelFormat::RGB24 , 24, 0x00FF0000, 0x0000FF00, 0x000000FF, 0x00000000, 16,  8 ,  0 ,  0, 2 , 1 , 0 , 0 , false  },
+  { "BGR24" , PixelFormat::BGR24 , 24, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000,  0,  8 , 16 ,  0, 2 , 1 , 0 , 0 , false  }
 };
 
 const Operation Api::operations[Operation::Count] = 
 {
   // Name               | Id                          | S, D Pixel  | S, D Alpha   |
   { "CompineCopy"       , Operation::CombineCopy      , true , false, false, false },
-  { "CompineBlend"      , Operation::CombineBlend     , true , false, false, false },
+  { "CompineBlend"      , Operation::CombineBlend     , true , false, false, false }
 };
 
 } // BlitJit namespace

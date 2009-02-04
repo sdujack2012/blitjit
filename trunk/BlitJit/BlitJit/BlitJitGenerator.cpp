@@ -31,6 +31,10 @@ using namespace AsmJit;
 
 namespace BlitJit {
 
+// ============================================================================
+// [Generator - Construction / Destruction]
+// ============================================================================
+
 Generator::Generator(X86& a) : a(a)
 {
 }
@@ -39,23 +43,171 @@ Generator::~Generator()
 {
 }
 
-void Generator::blitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
-{
-  const PixelFormat& d = Api::pixelFormats[dId];
-  const PixelFormat& s = Api::pixelFormats[sId];
-  const Operation& o = Api::operations[oId];
+// ============================================================================
+// [Generator - fillSpan]
+// ============================================================================
 
+void Generator::fillSpan(const PixelFormat& dst, const PixelFormat& src, const Operation& op)
+{
   // Function entry
-  entry();
+  fillSpanEntry();
+
+  // If source pixel format not contains alpha channel, add it
+  if (!src.isAlpha())
+  {
+    a.or_(eax, dst.aMask32());
+  }
+
+  /*
+  I don't know if this is useable
+  if (op.dstAlphaUsed() && !op.srcAlphaUsed())
+  {
+    a.or_(eax, dst.aMask32());
+  }
+  */
+
+  // L_Begin
+  a.bind(&L_Begin);
+
+  // We can optimize simple fills in different way that compositing operations.
+  // Simple fill should be unrolled loop for 32 bytes or more at a time.
+  if (dst.depth() == 32 && op.id() == Operation::CombineCopy)
+  {
+    fillSpanMemSet32();
+  }
+  else
+  {
+    // Align
+    Label L_Align;
+
+    // a.mov(
+    a.bind(&L_Align);
+
+    if (op.dstPixelUsed())
+    {
+      switch (dst.id())
+      {
+        case PixelFormat::ARGB32:
+        case PixelFormat::PRGB32:
+        case PixelFormat::XRGB32:
+          a.mov(edx, dword_ptr(edi));
+          break;
+      }
+    }
+
+    // Composite
+    switch (op.id())
+    {
+      case Operation::CombineCopy:
+        break;
+    }
+
+    // Store
+    switch (dst.id())
+    {
+      case PixelFormat::ARGB32:
+      case PixelFormat::PRGB32:
+      case PixelFormat::XRGB32:
+        a.mov(dword_ptr(edi), eax);
+        break;
+    }
+
+    // End
+    a.add(edi, dst.depth() / 8);
+    a.dec(ecx);
+    a.j(C_NOT_ZERO, &L_Begin);
+  }
+
+  // Function leave
+  fillSpanLeave();
+}
+
+void Generator::fillSpanEntry()
+{
+  a.push(ebp);
+  a.mov(ebp, esp);
+
+  a.push(ebx);
+  a.push(edi);
+
+  const SysInt arg_offset = 8;
+  a.mov(edi, dword_ptr(ebp, arg_offset + 0)); // dst
+  a.mov(eax, dword_ptr(ebp, arg_offset + 4)); // src
+  a.mov(ecx, dword_ptr(ebp, arg_offset + 8)); // len
+}
+
+void Generator::fillSpanLeave()
+{
+  a.bind(&L_Leave);
+
+  a.pop(edi);
+  a.pop(ebx);
+
+  a.mov(esp, ebp);
+  a.pop(ebp);
+  a.ret(12);
+}
+
+void Generator::fillSpanMemSet32()
+{
+  Label L1;
+  Label L2;
+
+  a.cmp(ecx, 8);
+  a.j(C_LESS, &L2);
+
+  a.mov(edx, ecx);
+  a.shr(ecx, 3);
+  a.and_(edx, 16 - 1);
+
+  // Unrolled loop, we are using align 4 here, because this path will be 
+  // generated only for older CPUs.
+  a.align(4);
+  a.bind(&L1);
+
+  a.mov(dword_ptr(edi,  0), eax);
+  a.mov(dword_ptr(edi,  4), eax);
+  a.mov(dword_ptr(edi,  8), eax);
+  a.mov(dword_ptr(edi, 12), eax);
+  a.mov(dword_ptr(edi, 16), eax);
+  a.mov(dword_ptr(edi, 20), eax);
+  a.mov(dword_ptr(edi, 24), eax);
+  a.mov(dword_ptr(edi, 28), eax);
+
+  a.add(edi, 32);
+  a.dec(ecx);
+  a.j(C_NOT_ZERO, &L1);
+
+  a.mov(ecx, edx);
+  a.j(C_ZERO, &L_Leave);
+
+  // Tail
+  a.align(4);
+  a.bind(&L2);
+
+  a.mov(dword_ptr(edi,  0), eax);
+
+  a.add(edi, 4);
+  a.dec(ecx);
+  a.j(C_NOT_ZERO, &L2);
+}
+
+// ============================================================================
+// [Generator - blitSpan]
+// ============================================================================
+
+void Generator::blitSpan(const PixelFormat& dst, const PixelFormat& src, const Operation& op)
+{
+  // Function entry
+  blitSpanEntry();
 
   // Loop
-  Label L_Begin;
   a.bind(&L_Begin);
 
   // Fetch
-  if (o.srcPixelUsed)
+  if (op.srcPixelUsed())
   {
-    switch (o.id)
+    switch (op.id())
     {
       case PixelFormat::ARGB32:
       case PixelFormat::PRGB32:
@@ -65,9 +217,9 @@ void Generator::blitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     }
   }
 
-  if (o.dstPixelUsed)
+  if (op.dstPixelUsed())
   {
-    switch (d.id)
+    switch (dst.id())
     {
       case PixelFormat::ARGB32:
       case PixelFormat::PRGB32:
@@ -78,19 +230,19 @@ void Generator::blitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
   }
 
   // Composite
-  switch (o.id)
+  switch (op.id())
   {
     case Operation::CombineCopy:
       break;
   }
 
-  if (o.dstAlphaUsed && !o.srcAlphaUsed)
+  if (op.dstAlphaUsed() && !op.srcAlphaUsed())
   {
-    a.or_(eax, d.aMask);
+    a.or_(eax, dst.aMask32());
   }
 
   // Store
-  switch (d.id)
+  switch (dst.id())
   {
     case PixelFormat::ARGB32:
     case PixelFormat::PRGB32:
@@ -100,16 +252,16 @@ void Generator::blitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
   }
 
   // End
-  a.add(esi, s.depth / 8);
-  a.add(edi, d.depth / 8);
+  a.add(esi, src.depth() / 8);
+  a.add(edi, dst.depth() / 8);
   a.dec(ecx);
   a.j(C_NOT_ZERO, &L_Begin);
 
   // Function leave
-  leave();
+  blitSpanLeave();
 }
 
-void Generator::entry()
+void Generator::blitSpanEntry()
 {
   a.push(ebp);
   a.mov(ebp, esp);
@@ -124,8 +276,10 @@ void Generator::entry()
   a.mov(ecx, dword_ptr(ebp, arg_offset + 8)); // len
 }
 
-void Generator::leave()
+void Generator::blitSpanLeave()
 {
+  a.bind(&L_Leave);
+
   a.pop(esi);
   a.pop(edi);
   a.pop(ebx);
