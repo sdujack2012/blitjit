@@ -6,6 +6,7 @@ Set(ASMJIT_DIR "../AsmJit")
 Set(BLITJIT_DIR "../BlitJit")
 
 Set(ASMJIT_SOURCES
+  ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitVM.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitX86.cpp
 )
@@ -13,6 +14,7 @@ Set(ASMJIT_SOURCES
 Set(ASMJIT_HEADERS
   ${ASMJIT_DIR}/AsmJit/AsmJit.h
   ${ASMJIT_DIR}/AsmJit/AsmJitConfig.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.h
   ${ASMJIT_DIR}/AsmJit/AsmJitVM.h
   ${ASMJIT_DIR}/AsmJit/AsmJitX86.h
 )
