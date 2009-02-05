@@ -26,7 +26,9 @@
 #include "BlitJitApi.h"
 #include "BlitJitGenerator.h"
 
+#include <AsmJit/AsmJitCpuInfo.h>
 #include <AsmJit/AsmJitX86.h>
+
 using namespace AsmJit;
 
 namespace BlitJit {
@@ -35,7 +37,9 @@ namespace BlitJit {
 // [Generator - Construction / Destruction]
 // ============================================================================
 
-Generator::Generator(X86& a) : a(a)
+Generator::Generator(X86& a) : 
+  a(a),
+  features(cpuInfo()->features)
 {
 }
 
@@ -158,7 +162,7 @@ void Generator::fillSpanMemSet32()
 
   a.mov(edx, ecx);
   a.shr(ecx, 3);
-  a.and_(edx, 16 - 1);
+  a.and_(edx, 7);
 
   // Unrolled loop, we are using align 4 here, because this path will be 
   // generated only for older CPUs.

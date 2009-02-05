@@ -99,6 +99,9 @@ struct Generator
 
   //! @brief Assembler stream.
   AsmJit::X86& a;
+  //! @brief Cpu features, see @c AsmJit::CpuInfo::Feature enumeration.
+  UInt32 features;
+
   //! @brief Begin of function after prolog.
   AsmJit::Label L_Begin;
   //! @brief Label before epilog.
