@@ -76,8 +76,7 @@ BlitJit::FillSpanFn JitManager::getFillSpan(
       BlitJit::Api::pixelFormats[dId],
       BlitJit::Api::pixelFormats[sId], 
       BlitJit::Api::operations[oId]);
-    fn = reinterpret_cast<BlitJit::FillSpanFn>
-      (memmgr.submit(a.pData, a.codeSize()));
+    fn = reinterpret_cast<BlitJit::FillSpanFn>(memmgr.submit(a));
 
     fillSpan[pos] = fn;
     return fn;
@@ -107,8 +106,7 @@ BlitJit::BlitSpanFn JitManager::getBlitSpan(
       BlitJit::Api::pixelFormats[dId],
       BlitJit::Api::pixelFormats[sId], 
       BlitJit::Api::operations[oId]);
-    fn = reinterpret_cast<BlitJit::BlitSpanFn>
-      (memmgr.submit(a.pData, a.codeSize()));
+    fn = reinterpret_cast<BlitJit::BlitSpanFn>(memmgr.submit(a));
 
     blitSpan[pos] = fn;
     return fn;
@@ -227,7 +225,7 @@ void Application::onRender()
   BlitJit::SysUInt z; 
 
   // For benchmarking
-  for (z = 0; z < 100; z++)
+  for (z = 0; z < 1; z++)
   {
     for (i = 0; i < height; i++)
     {
