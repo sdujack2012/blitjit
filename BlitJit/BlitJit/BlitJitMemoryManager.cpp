@@ -99,9 +99,19 @@ void* MemoryManager::submit(const void* code, SysUInt size)
   UInt8* p = cur->base + cur->used;
   cur->used += alignedSize;
 
-  memcpy(p, code, size);
+  // Code can be null to only reserve space for code.
+  if (code) memcpy(p, code, size);
   memset(p + size, 0xCC, over); // int3
   return (void*)p;
+}
+
+void* MemoryManager::submit(const AsmJit::X86& a)
+{
+  SysUInt size = static_cast<SysUInt>(a.codeSize());
+  void* m = submit(NULL, size);
+
+  if (m) a.relocCode(m);
+  return m;
 }
 
 } // BlitJit namespace

@@ -32,6 +32,7 @@
 #include "BlitJitLock.h"
 
 #include <AsmJit/AsmJitConfig.h>
+#include <AsmJit/AsmJitX86.h>
 
 namespace BlitJit {
 
@@ -52,7 +53,13 @@ struct BLITJIT_API MemoryManager
   //! Returned pointer will be never changed.
   //!
   //! @note This function can return NULL if memory couldn't be allocated.
+  //!
+  //! @note @a code can be NULL and after call of this function it can be
+  //! manualy copied to returned address.
   void* submit(const void* code, SysUInt size);
+
+  //! @overload
+  void* submit(const AsmJit::X86& a);
 
   //! @brief Memory Manager Chunk.
   struct Chunk
