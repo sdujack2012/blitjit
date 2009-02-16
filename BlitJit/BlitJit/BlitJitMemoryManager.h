@@ -32,7 +32,7 @@
 #include "BlitJitLock.h"
 
 #include <AsmJit/AsmJitConfig.h>
-#include <AsmJit/AsmJitX86.h>
+#include <AsmJit/AsmJitAssembler.h>
 
 namespace BlitJit {
 
@@ -59,7 +59,7 @@ struct BLITJIT_API MemoryManager
   void* submit(const void* code, SysUInt size);
 
   //! @overload
-  void* submit(const AsmJit::X86& a);
+  void* submit(const AsmJit::Assembler& a);
 
   //! @brief Memory Manager Chunk.
   struct Chunk
