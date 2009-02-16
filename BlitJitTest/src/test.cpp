@@ -69,7 +69,7 @@ BlitJit::FillSpanFn JitManager::getFillSpan(
   if (fn) return fn;
 
   {
-    AsmJit::X86 a;
+    AsmJit::Assembler a;
     BlitJit::Generator gen(a);
 
     gen.fillSpan(
@@ -99,7 +99,7 @@ BlitJit::BlitSpanFn JitManager::getBlitSpan(
   if (fn) return fn;
 
   {
-    AsmJit::X86 a;
+    AsmJit::Assembler a;
     BlitJit::Generator gen(a);
 
     gen.blitSpan(

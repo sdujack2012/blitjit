@@ -6,18 +6,28 @@ Set(ASMJIT_DIR "../AsmJit")
 Set(BLITJIT_DIR "../BlitJit")
 
 Set(ASMJIT_SOURCES
+  ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.cpp
+  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.cpp
+  ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.cpp
+  ${ASMJIT_DIR}/AsmJit/AsmJitUtil.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitVM.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitX86.cpp
 )
 
 Set(ASMJIT_HEADERS
   ${ASMJIT_DIR}/AsmJit/AsmJit.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitAssembler.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitConfig.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitCompiler.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitDefs.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitDefsX86X64.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitSerializer.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitUtil.h
   ${ASMJIT_DIR}/AsmJit/AsmJitVM.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitX86.h
 )
 
 Set(BLITJIT_SOURCES
