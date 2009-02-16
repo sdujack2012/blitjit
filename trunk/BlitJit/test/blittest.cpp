@@ -41,7 +41,7 @@ int main(int argc, char* argv[])
 
   // Generator
   {
-    AsmJit::X86 a;
+    AsmJit::Assembler a;
     BlitJit::Generator gen(a);
 
     gen.blitSpan(
@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
       BlitJit::Api::operations[BlitJit::Operation::CombineCopy]);
 
     fn = reinterpret_cast<BlitJit::BlitSpanFn>
-      (memmgr.submit(a.pData, a.codeSize()));
+      (memmgr.submit(a));
   }
 
   const int Size = 8;

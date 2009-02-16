@@ -105,7 +105,7 @@ void* MemoryManager::submit(const void* code, SysUInt size)
   return (void*)p;
 }
 
-void* MemoryManager::submit(const AsmJit::X86& a)
+void* MemoryManager::submit(const AsmJit::Assembler& a)
 {
   SysUInt size = static_cast<SysUInt>(a.codeSize());
   void* m = submit(NULL, size);

@@ -26,8 +26,8 @@
 #include "BlitJitApi.h"
 #include "BlitJitGenerator.h"
 
+#include <AsmJit/AsmJitAssembler.h>
 #include <AsmJit/AsmJitCpuInfo.h>
-#include <AsmJit/AsmJitX86.h>
 
 using namespace AsmJit;
 
@@ -37,7 +37,7 @@ namespace BlitJit {
 // [Generator - Construction / Destruction]
 // ============================================================================
 
-Generator::Generator(X86& a) : 
+Generator::Generator(Assembler& a) : 
   a(a),
   features(cpuInfo()->features)
 {

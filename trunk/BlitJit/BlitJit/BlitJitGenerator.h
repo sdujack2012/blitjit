@@ -30,7 +30,7 @@
 // [Dependencies]
 #include "BlitJitConfig.h"
 
-#include <AsmJit/AsmJitX86.h>
+#include <AsmJit/AsmJitAssembler.h>
 
 namespace BlitJit {
 
@@ -46,7 +46,7 @@ typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
 
 struct Generator
 {
-  Generator(AsmJit::X86& a);
+  Generator(AsmJit::Assembler& a);
   virtual ~Generator();
 
   // [FillSpan]
@@ -98,7 +98,7 @@ struct Generator
   virtual void blitSpanLeave();
 
   //! @brief Assembler stream.
-  AsmJit::X86& a;
+  AsmJit::Assembler& a;
   //! @brief Cpu features, see @c AsmJit::CpuInfo::Feature enumeration.
   UInt32 features;
 
