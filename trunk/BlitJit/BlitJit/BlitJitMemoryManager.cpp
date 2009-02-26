@@ -29,6 +29,9 @@
 #include "BlitJitMemoryManager.h"
 
 #include <AsmJit/AsmJitConfig.h>
+#include <AsmJit/AsmJitAssembler.h>
+#include <AsmJit/AsmJitCompiler.h>
+#include <AsmJit/AsmJitPrettyPrinter.h>
 #include <AsmJit/AsmJitVM.h>
 
 #include <string.h>
@@ -46,6 +49,7 @@ MemoryManager::MemoryManager()
 {
   _alignment = 32;
   _virtualSize = getDefaultVSize();
+  _used = 0;
   _chunks = NULL;
 }
 
@@ -99,19 +103,33 @@ void* MemoryManager::submit(const void* code, SysUInt size)
   UInt8* p = cur->base + cur->used;
   cur->used += alignedSize;
 
+  // Statistics
+  _used += alignedSize;
+
   // Code can be null to only reserve space for code.
   if (code) memcpy(p, code, size);
   memset(p + size, 0xCC, over); // int3
   return (void*)p;
 }
 
-void* MemoryManager::submit(const AsmJit::Assembler& a)
+void* MemoryManager::submit(AsmJit::Assembler& a)
 {
   SysUInt size = static_cast<SysUInt>(a.codeSize());
   void* m = submit(NULL, size);
 
   if (m) a.relocCode(m);
   return m;
+}
+
+void* MemoryManager::submit(AsmJit::Compiler& c)
+{
+  AsmJit::Assembler a;
+
+  AsmJit::PrettyPrinter logger;
+  a.setLogger(&logger);
+
+  c.build(a);
+  return submit(a);
 }
 
 } // BlitJit namespace

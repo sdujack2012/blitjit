@@ -120,10 +120,10 @@ struct Operation
   inline const char* name() const { return _name; }
   inline UInt32 id() const { return _id; }
 
-  inline bool srcPixelUsed() const { return _srcPixelUsed; }
-  inline bool dstPixelUsed() const { return _dstPixelUsed; }
-  inline bool srcAlphaUsed() const { return _srcAlphaUsed; }
-  inline bool dstAlphaUsed() const { return _dstAlphaUsed; }
+  inline UInt8 srcPixelUsed() const { return _srcPixelUsed; }
+  inline UInt8 dstPixelUsed() const { return _dstPixelUsed; }
+  inline UInt8 srcAlphaUsed() const { return _srcAlphaUsed; }
+  inline UInt8 dstAlphaUsed() const { return _dstAlphaUsed; }
 
   enum Id
   {
@@ -132,14 +132,12 @@ struct Operation
     // [Destination WITHOUT Alpha Channel]
 
     //! @brief Copy source to dest ignoring it's alpha value
-    CombineCopy = 0,
+    //CombineCopy = 0,
     //! @brief Blend source to dest using source alpha value.
-    CombineBlend = 1,
+    //CombineBlend = 1,
 
-#if 0 // not used for now
-    // [Destination WITH Alpha Channel]
     //! @brief Clear alpha value.
-    CompositeClear,
+    //CompositeClear,
     CompositeSrc,
     CompositeDest,
     CompositeOver,
@@ -152,21 +150,23 @@ struct Operation
     CompositeAtopReverse,
     CompositeXor,
     CompositeAdd,
+    CompositeSubtract,
+    CompositeMultiply,
     CompositeSaturate,
-#endif
+
     Count
   };
 
-  // variables, not private, because this is structure usually read-only.
+  // variables, not private, because this structure is usually read-only.
 
   char _name[32];
   UInt32 _id;
 
-  UInt32 _srcPixelUsed : 1;
-  UInt32 _dstPixelUsed : 1;
+  UInt8 _srcPixelUsed;
+  UInt8 _dstPixelUsed;
 
-  UInt32 _srcAlphaUsed : 1;
-  UInt32 _dstAlphaUsed : 1;
+  UInt8 _srcAlphaUsed;
+  UInt8 _dstAlphaUsed;
 };
 
 //! @}
