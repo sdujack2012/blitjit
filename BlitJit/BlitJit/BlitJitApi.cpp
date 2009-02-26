@@ -41,9 +41,25 @@ const PixelFormat Api::pixelFormats[PixelFormat::Count] =
 
 const Operation Api::operations[Operation::Count] = 
 {
-  // Name               | Id                          | S, D Pixel  | S, D Alpha   |
-  { "CompineCopy"       , Operation::CombineCopy      , true , false, false, false },
-  { "CompineBlend"      , Operation::CombineBlend     , true , false, false, false }
+  // Name                 | Id                             | S, D Pixel  | S, D Alpha
+  //{ "CompineCopy"         , Operation::CombineCopy         , true , false, false, false  },
+  //{ "CompineBlend"        , Operation::CombineBlend        , true , true , true , false  },
+  //{ "CompositeClear"      , Operation::CompositeClear      , false, true , true , true   },
+  { "CompositeSrc"        , Operation::CompositeSrc        , true , true , false, false  },
+  { "CompositeDest"       , Operation::CompositeDest       , false, false, true , true   },
+  { "CompositeOver"       , Operation::CompositeOver       , true , true , true , true   },
+  { "CompositeOverReverse", Operation::CompositeOverReverse, true , true , true , true   },
+  { "CompositeIn"         , Operation::CompositeIn         , true , true , true , true   },
+  { "CompositeInReverse"  , Operation::CompositeInReverse  , true , true , true , true   },
+  { "CompositeOut"        , Operation::CompositeOut        , true , true , true , true   },
+  { "CompositeOutReverse" , Operation::CompositeOutReverse , true , true , true , true   },
+  { "CompositeAtop"       , Operation::CompositeAtop       , true , true , true , true   },
+  { "CompositeAtopReverse", Operation::CompositeAtopReverse, true , true , true , true   },
+  { "CompositeXor"        , Operation::CompositeXor        , true , true , true , true   },
+  { "CompositeAdd"        , Operation::CompositeAdd        , true , true , true , true   },
+  { "CompositeSubtract"   , Operation::CompositeSubtract   , true , true , true , true   },
+  { "CompositeMultiply"   , Operation::CompositeMultiply   , true , true , true , true   },
+  { "CompositeSaturate"   , Operation::CompositeSaturate   , true , true , true , true   }
 };
 
 } // BlitJit namespace

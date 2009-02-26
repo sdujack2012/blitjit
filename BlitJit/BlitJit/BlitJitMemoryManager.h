@@ -33,6 +33,7 @@
 
 #include <AsmJit/AsmJitConfig.h>
 #include <AsmJit/AsmJitAssembler.h>
+#include <AsmJit/AsmJitCompiler.h>
 
 namespace BlitJit {
 
@@ -48,6 +49,13 @@ struct BLITJIT_API MemoryManager
   MemoryManager();
   ~MemoryManager();
 
+  //! @brief Return alignment to use for functions.
+  inline SysUInt alignment() const { return _alignment; }
+  //! @brief Return default size of each memory block.
+  inline SysUInt virtualSize() const { return _virtualSize; }
+  //! @brief Return total size of used memory by all functions.
+  inline SysUInt used() const { return _used; }
+
   //! @brief Adds binary code and returns pointer where it was placed.
   //!
   //! Returned pointer will be never changed.
@@ -59,7 +67,8 @@ struct BLITJIT_API MemoryManager
   void* submit(const void* code, SysUInt size);
 
   //! @overload
-  void* submit(const AsmJit::Assembler& a);
+  void* submit(AsmJit::Assembler& a);
+  void* submit(AsmJit::Compiler& c);
 
   //! @brief Memory Manager Chunk.
   struct Chunk
@@ -86,6 +95,8 @@ private:
   SysUInt _alignment;
   //! @brief Default size of virtual memory to allocate.
   SysUInt _virtualSize;
+  //! @brief Total used memory by functions.
+  SysUInt _used;
   //! @brief Chunks.
   Chunk* _chunks;
   //! @brief Lock.
