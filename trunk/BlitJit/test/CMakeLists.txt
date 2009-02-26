@@ -4,23 +4,19 @@ Project(blittest CXX)
 
 Set(ASMJIT_DIR "../../AsmJit")
 
-
-Set(ASMJIT_SOURCES
+Set(ASMJIT_BASE_SOURCES
   ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitUtil.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitVM.cpp
 )
 
-Set(ASMJIT_HEADERS
+Set(ASMJIT_BASE_HEADERS
   ${ASMJIT_DIR}/AsmJit/AsmJit.h
   ${ASMJIT_DIR}/AsmJit/AsmJitAssembler.h
   ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitConfig.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitCompiler.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.h
   ${ASMJIT_DIR}/AsmJit/AsmJitDefs.h
   ${ASMJIT_DIR}/AsmJit/AsmJitDefsX86X64.h
@@ -28,6 +24,23 @@ Set(ASMJIT_HEADERS
   ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitUtil.h
   ${ASMJIT_DIR}/AsmJit/AsmJitVM.h
+)
+
+Set(ASMJIT_COMPILER_SOURCES
+  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.cpp
+)
+
+Set(ASMJIT_COMPILER_HEADERS
+  ${ASMJIT_DIR}/AsmJit/AsmJitCompiler.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.h
+)
+
+Set(ASMJIT_PRETTYPRINTER_SOURCES
+  ${ASMJIT_DIR}/AsmJit/AsmJitPrettyPrinter.cpp
+)
+
+Set(ASMJIT_PRETTYPRINTER_HEADERS
+  ${ASMJIT_DIR}/AsmJit/AsmJitPrettyPrinter.h
 )
 
 Set(BLITJIT_DIR "..")
@@ -53,4 +66,8 @@ Set(BLITJIT_HEADERS
 Include_Directories(${ASMJIT_DIR})
 Include_Directories(${BLITJIT_DIR})
 
-Add_Executable(blittest blittest.cpp ${ASMJIT_SOURCES} ${ASMJIT_HEADERS} ${BLITJIT_SOURCES} ${BLITJIT_HEADERS})
+Add_Executable(blittest blittest.cpp 
+  ${ASMJIT_BASE_SOURCES} ${ASMJIT_BASE_HEADERS} 
+  ${ASMJIT_COMPILER_SOURCES} ${ASMJIT_COMPILER_HEADERS} 
+  ${ASMJIT_PRETTYPRINTER_SOURCES} ${ASMJIT_PRETTYPRINTER_HEADERS} 
+  ${BLITJIT_SOURCES} ${BLITJIT_HEADERS})
