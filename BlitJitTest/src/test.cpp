@@ -185,9 +185,15 @@ static SDL_Surface* LoadIMG(const char* path)
   SDL_Surface* t;
   if ((t = IMG_Load(path)) == NULL)
   {
-    fprintf(stderr, "Can't load image %s: %s\n", path, SDL_GetError());
-    return NULL;
+    char buffer[1024];
+    sprintf(buffer, "../%s", path);
+    if ((t = IMG_Load(buffer)) == NULL)
+    {
+      fprintf(stderr, "Can't load image %s: %s\n", path, SDL_GetError());
+      return NULL;
+    }
   }
+  
   SDL_Surface* img = SDL_CreateRGBSurface(SDL_SWSURFACE, t->w, t->h, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
 
   BlitJit::SysInt i;
@@ -219,10 +225,10 @@ int Application::init(int width, int height, int depth)
     return 1;
   }
 
-  img[0] = LoadIMG("babelfish.png");
-  img[1] = LoadIMG("blockdevice.png");
-  img[2] = LoadIMG("drop.png");
-  img[3] = LoadIMG("kweather.png");
+  img[0] = LoadIMG("img/babelfish.png");
+  img[1] = LoadIMG("img/blockdevice.png");
+  img[2] = LoadIMG("img/drop.png");
+  img[3] = LoadIMG("img/kweather.png");
 
   return 0;
 }
