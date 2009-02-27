@@ -44,37 +44,32 @@ struct PixelFormat
 
   inline UInt32 depth() const { return _depth; }
 
-  inline UInt32 rMask32() const { return _rMask; }
-  inline UInt32 gMask32() const { return _gMask; }
-  inline UInt32 bMask32() const { return _bMask; }
-  inline UInt32 aMask32() const { return _aMask; }
+  inline UInt32 rMask16() const { return (((UInt16)1U << _rSize) - 1) << _rShift; }
+  inline UInt32 gMask16() const { return (((UInt16)1U << _gSize) - 1) << _gShift; }
+  inline UInt32 bMask16() const { return (((UInt16)1U << _bSize) - 1) << _bShift; }
+  inline UInt32 aMask16() const { return (((UInt16)1U << _aSize) - 1) << _aShift; }
 
-  inline UInt32 rShift32() const { return _rShift; }
-  inline UInt32 gShift32() const { return _gShift; }
-  inline UInt32 bShift32() const { return _bShift; }
-  inline UInt32 aShift32() const { return _aShift; }
+  inline UInt32 rMask32() const { return ((1U << _rSize) - 1) << _rShift; }
+  inline UInt32 gMask32() const { return ((1U << _gSize) - 1) << _gShift; }
+  inline UInt32 bMask32() const { return ((1U << _bSize) - 1) << _bShift; }
+  inline UInt32 aMask32() const { return ((1U << _aSize) - 1) << _aShift; }
 
-  inline UInt32 rBytePos() const { return _rBytePos; }
-  inline UInt32 gBytePos() const { return _gBytePos; }
-  inline UInt32 bBytePos() const { return _bBytePos; }
-  inline UInt32 aBytePos() const { return _aBytePos; }
+  inline UInt32 rMask64() const { return (((UInt64)1U << _rSize) - 1) << _rShift; }
+  inline UInt32 gMask64() const { return (((UInt64)1U << _gSize) - 1) << _gShift; }
+  inline UInt32 bMask64() const { return (((UInt64)1U << _bSize) - 1) << _bShift; }
+  inline UInt32 aMask64() const { return (((UInt64)1U << _aSize) - 1) << _aShift; }
+
+  inline UInt32 rShift() const { return _rShift; }
+  inline UInt32 gShift() const { return _gShift; }
+  inline UInt32 bShift() const { return _bShift; }
+  inline UInt32 aShift() const { return _aShift; }
 
   inline bool isPremultiplied() const { return static_cast<bool>(_isPremultiplied); }
 
-  inline bool isRgb() const
-  {
-    return _rMask != 0 && _gMask != 0 && _bMask != 0;
-  }
-  
-  inline bool isGrey() const
-  {
-    return _rMask == _gMask && _gMask == _bMask;
-  }
-
-  inline bool isAlpha() const
-  {
-    return _aMask != 0;
-  }
+  inline bool isArgb() const { return _rSize != 0 && _gSize != 0 && _bSize != 0 && _aSize != 0; }
+  inline bool isAlpha() const { return _aSize != 0; }
+  inline bool isGrey() const { return (_rShift == _gShift) & (_gShift == _bShift); }
+  inline bool isRgb() const { return _rSize != 0 && _gSize != 0 && _bSize != 0; }
 
   //! @brief Pixel format IDs.
   enum Id
@@ -96,20 +91,15 @@ struct PixelFormat
 
   UInt32 _depth;
 
-  UInt32 _rMask;
-  UInt32 _gMask;
-  UInt32 _bMask;
-  UInt32 _aMask;
+  UInt32 _rSize;
+  UInt32 _gSize;
+  UInt32 _bSize;
+  UInt32 _aSize;
 
   UInt32 _rShift;
   UInt32 _gShift;
   UInt32 _bShift;
   UInt32 _aShift;
-
-  UInt32 _rBytePos;
-  UInt32 _gBytePos;
-  UInt32 _bBytePos;
-  UInt32 _aBytePos;
 
   UInt32 _isPremultiplied : 1;
 };
@@ -127,28 +117,31 @@ struct Operation
 
   enum Id
   {
-    // TODO: Unify this
-
-    // [Destination WITHOUT Alpha Channel]
-
-    //! @brief Copy source to dest ignoring it's alpha value
-    //CombineCopy = 0,
-    //! @brief Blend source to dest using source alpha value.
-    //CombineBlend = 1,
-
-    //! @brief Clear alpha value.
-    //CompositeClear,
+    //! @brief Source to dest (dest will be altered).
     CompositeSrc,
+    //! @brief Dest to source (source will be altered).
     CompositeDest,
+    //! @brief Source over dest.
     CompositeOver,
+    //! @brief Dest over source.
     CompositeOverReverse,
+    //! @brief Source in dest.
     CompositeIn,
+    //! @brief Dest in source.
     CompositeInReverse,
+    //! @brief Source out dest.
     CompositeOut,
+    //! @brief Dest out source.
     CompositeOutReverse,
+    //! @brief Source atop dest.
     CompositeAtop,
+    //! @brief Dest atop source.
     CompositeAtopReverse,
+    //! @brief Source xor dest.
     CompositeXor,
+    //! @brief Clear to fully transparent or black (if image not contains alpha 
+    //! channel).
+    CompositeClear,
     CompositeAdd,
     CompositeSubtract,
     CompositeMultiply,

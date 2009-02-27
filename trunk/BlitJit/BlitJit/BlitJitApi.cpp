@@ -30,21 +30,18 @@ namespace BlitJit {
 
 const PixelFormat Api::pixelFormats[PixelFormat::Count] = 
 {
-  // Name   | Id                 | D | rMask     | gMask     | bMask     | aMask     | rgbaShift       | rgbaBytePos   | premul |
-  { "ARGB32", PixelFormat::ARGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 16,  8 ,  0 , 24, 2 , 1 , 0 , 3 , false  },
-  { "PRGB32", PixelFormat::PRGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000, 16,  8 ,  0 , 24, 2 , 1 , 0 , 3 , true   },
-  { "XRGB32", PixelFormat::XRGB32, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0x00000000, 16,  8 ,  0 ,  0, 2 , 1 , 0 , 3 , false  },
+  // Name   | Id                 | D | RGBA Size     | RGBA Shift      | premul |
+  { "ARGB32", PixelFormat::ARGB32, 32,  8,  8,  8,  8, 16,  8 ,  0 , 24, false  },
+  { "PRGB32", PixelFormat::PRGB32, 32,  8,  8,  8,  8, 16,  8 ,  0 , 24, true   },
+  { "XRGB32", PixelFormat::XRGB32, 32,  8,  8,  8,  0, 16,  8 ,  0 ,  0, false  },
 
-  { "RGB24" , PixelFormat::RGB24 , 24, 0x00FF0000, 0x0000FF00, 0x000000FF, 0x00000000, 16,  8 ,  0 ,  0, 2 , 1 , 0 , 0 , false  },
-  { "BGR24" , PixelFormat::BGR24 , 24, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000,  0,  8 , 16 ,  0, 2 , 1 , 0 , 0 , false  }
+  { "RGB24" , PixelFormat::RGB24 , 24,  8,  8,  8,  0, 16,  8 ,  0 ,  0, false  },
+  { "BGR24" , PixelFormat::BGR24 , 24,  8,  8,  8,  0,  0,  8 , 16 ,  0, false  }
 };
 
 const Operation Api::operations[Operation::Count] = 
 {
   // Name                 | Id                             | S, D Pixel  | S, D Alpha
-  //{ "CompineCopy"         , Operation::CombineCopy         , true , false, false, false  },
-  //{ "CompineBlend"        , Operation::CombineBlend        , true , true , true , false  },
-  //{ "CompositeClear"      , Operation::CompositeClear      , false, true , true , true   },
   { "CompositeSrc"        , Operation::CompositeSrc        , true , true , false, false  },
   { "CompositeDest"       , Operation::CompositeDest       , false, false, true , true   },
   { "CompositeOver"       , Operation::CompositeOver       , true , true , true , true   },
@@ -56,6 +53,7 @@ const Operation Api::operations[Operation::Count] =
   { "CompositeAtop"       , Operation::CompositeAtop       , true , true , true , true   },
   { "CompositeAtopReverse", Operation::CompositeAtopReverse, true , true , true , true   },
   { "CompositeXor"        , Operation::CompositeXor        , true , true , true , true   },
+  { "CompositeClear"      , Operation::CompositeClear      , false, false, false, false  },
   { "CompositeAdd"        , Operation::CompositeAdd        , true , true , true , true   },
   { "CompositeSubtract"   , Operation::CompositeSubtract   , true , true , true , true   },
   { "CompositeMultiply"   , Operation::CompositeMultiply   , true , true , true , true   },
