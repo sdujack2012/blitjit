@@ -34,7 +34,450 @@ using namespace AsmJit;
 
 namespace BlitJit {
 
+// ============================================================================
+// [BlitJit::Macros]
+// ============================================================================
+
 #define RCONST_DISP(__cname__) (Int32)( (UInt8 *)&Generator::constants->__cname__ - (UInt8 *)Generator::constants )
+
+// ============================================================================
+// [BlitJit::GeneratorOp]
+// ============================================================================
+
+struct GeneratorOp
+{
+  GeneratorOp(Generator* g, Compiler* c, Function* f) : g(g), c(c), f(f) {}
+  virtual ~GeneratorOp() {}
+
+  virtual void init() {};
+  virtual void free() {};
+
+  Generator* g;
+  Compiler* c;
+  Function* f;
+};
+
+// ============================================================================
+// [BlitJit::CompositeOp32]
+// ============================================================================
+
+struct CompositeOp32 : public GeneratorOp
+{
+  // --------------------------------------------------------------------------
+  // [Construction / Destruction]
+  // --------------------------------------------------------------------------
+
+  CompositeOp32(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op)
+  {
+  }
+
+  virtual ~CompositeOp32() {}
+
+  enum RawFlags
+  {
+    Raw4UnpackFromDst0 = (1 << 0),
+    Raw4UnpackFromSrc0 = (1 << 1),
+    Raw4PackToDst0 = (1 << 2)
+  };
+
+  // --------------------------------------------------------------------------
+  // [init / free]
+  // --------------------------------------------------------------------------
+
+  virtual void init()
+  {
+    g->initRConst();
+
+    z.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    z.alloc();
+
+    c0x0080.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    c0x0080.alloc();
+
+    c->pxor(z.r(), z.r());
+    c->movq(c0x0080.r(), ptr(g->rconst.r(), 
+      RCONST_DISP(Cx00800080008000800080008000800080)));
+  }
+
+  virtual void free()
+  {
+    z.unuse();
+  }
+
+  // --------------------------------------------------------------------------
+  // [doPixelUnpacked]
+  // --------------------------------------------------------------------------
+
+  void doPixelRaw(
+    const XMMRegister& dst0, const XMMRegister& src0, bool two)
+  {
+    c->punpcklbw(src0, z.r());
+    c->punpcklbw(dst0, z.r());
+    doPixelUnpacked(dst0, src0, two);
+    c->packuswb(dst0, dst0);
+  }
+
+  void doPixelRaw_4(
+    const XMMRegister& dst0, const XMMRegister& src0,
+    const XMMRegister& dst1, const XMMRegister& src1, UInt32 flags)
+  {
+    if (flags & Raw4UnpackFromSrc0) c->movdqa(src1, src0);
+    if (flags & Raw4UnpackFromDst0) c->movdqa(dst1, dst0);
+
+    if (flags & Raw4UnpackFromSrc0)
+    {
+      c->punpcklbw(src0, z.r());
+      c->punpckhbw(src1, z.r());
+    }
+    else
+    {
+      c->punpcklbw(src0, z.r());
+      c->punpcklbw(src1, z.r());
+    }
+
+    if (flags & Raw4UnpackFromDst0)
+    {
+      c->punpcklbw(dst0, z.r());
+      c->punpckhbw(dst1, z.r());
+    }
+    else
+    {
+      c->punpcklbw(dst0, z.r());
+      c->punpcklbw(dst1, z.r());
+    }
+
+    doPixelUnpacked_4(dst0, src0, dst1, src1);
+
+    if (flags & Raw4PackToDst0)
+    {
+      c->packuswb(dst0, dst1);
+    }
+    else
+    {
+      c->packuswb(dst0, dst0);
+      c->packuswb(dst1, dst1);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // [doPixelUnpacked]
+  // --------------------------------------------------------------------------
+
+  void doPixelUnpacked(
+    const XMMRegister& dst0, const XMMRegister& src0, bool two)
+  {
+    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRef _t0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+
+    XMMRegister a0 = _a0.r();
+    XMMRegister t0 = _t0.r();
+
+    switch (op)
+    {
+      case Operation::CompositeSrc:
+        // copy operation (optimized in frontends and also by Generator itself)
+        c->movdqa(dst0, src0);
+        break;
+      case Operation::CompositeDest:
+        // no operation (optimized in frontends and also by Generator itself)
+        break;
+      case Operation::CompositeOver:
+        doExtractAlpha(a0, src0, 3, true, two);
+        doPackedMultiply(dst0, a0, t0);
+        c->paddusb(dst0, src0);
+        break;
+      case Operation::CompositeOverReverse:
+        doExtractAlpha(a0, dst0, 3, true, two);
+        doPackedMultiply(src0, a0, t0);
+        c->paddusb(dst0, src0);
+        break;
+      case Operation::CompositeIn:
+        doExtractAlpha(a0, dst0, 3, false, two);
+        doPackedMultiply(src0, a0, dst0, true);
+        break;
+      case Operation::CompositeInReverse:
+        doExtractAlpha(a0, src0, 3, false, two);
+        doPackedMultiply(dst0, a0, t0);
+        break;
+      case Operation::CompositeOut:
+        doExtractAlpha(a0, dst0, 3, true, two);
+        doPackedMultiply(src0, a0, dst0, true);
+        break;
+      case Operation::CompositeOutReverse:
+        doExtractAlpha(a0, src0, 3, true, two);
+        doPackedMultiply(dst0, a0, t0);
+        break;
+      case Operation::CompositeAtop:
+        doExtractAlpha(a0, src0, 3, true, two);
+        doExtractAlpha(t0, dst0, 3, false, two);
+        doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+        break;
+      case Operation::CompositeAtopReverse:
+        doExtractAlpha(a0, src0, 3, false, two);
+        doExtractAlpha(t0, dst0, 3, true, two);
+        doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+        break;
+      case Operation::CompositeXor:
+        doExtractAlpha(a0, src0, 3, true, two);
+        doExtractAlpha(t0, dst0, 3, true, two);
+        doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+        break;
+      case Operation::CompositeAdd:
+        c->paddusb(dst0, src0);
+        break;
+      case Operation::CompositeSubtract:
+        c->psubusb(dst0, src0);
+        break;
+      case Operation::CompositeMultiply:
+        doPackedMultiply(dst0, src0, t0);
+        break;
+      case Operation::CompositeSaturate:
+      {
+        Label* L_Skip = c->newLabel();
+        Int32Ref td = f->newVariable(VARIABLE_TYPE_INT32, 0);
+        Int32Ref ts = f->newVariable(VARIABLE_TYPE_INT32, 0);
+
+        c->movdqa(t0, dst0);
+        c->movdqa(a0, src0);
+        c->psrlq(t0, 48);
+        c->psrlq(a0, 48);
+        c->movd(td.r(), t0);
+        c->movd(ts.r(), a0);
+        c->neg(td.r());
+        c->cmp(ts.r16(), td.r16());
+        c->jle(L_Skip);
+
+        c->and_(ts.r(), 0xFF); 
+        c->shl(ts.r(), 4);
+        c->movd(a0, td.r());
+        doExtractAlpha(a0, a0, 0, 0, false);
+        c->movdqa(t0, ptr(g->rconst.r(), ts.r(), 0, RCONST_DISP(CxDemultiply)));
+        doPackedMultiply(a0, t0, t0);
+        doPackedMultiply(src0, a0, a0);
+
+        c->bind(L_Skip);
+        c->paddusb(dst0, src0);
+        break;
+      }
+    }
+  }
+
+  void doPixelUnpacked_4(
+    const XMMRegister& dst0, const XMMRegister& src0,
+    const XMMRegister& dst1, const XMMRegister& src1)
+  {
+  }
+
+  // --------------------------------------------------------------------------
+  // [Helpers]
+  // --------------------------------------------------------------------------
+
+  //! @brief Extract alpha channel.
+  //! @param dst0 Destination XMM register (can be same as @a src).
+  //! @param src0 Source XMM register.
+  //! @param packed Whether extract alpha for packed pixels (two pixels, 
+  //! one extra instruction).
+  //! @param alphaPos Alpha position.
+  //! @param negate Whether to negate extracted alpha values (255 - alpha).
+  void doExtractAlpha(
+    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos, UInt8 negate, bool two)
+  {
+    c->pshuflw(dst0, src0, mm_shuffle(alphaPos, alphaPos, alphaPos, alphaPos));
+
+    if (two)
+    {
+      c->pshufhw(dst0, dst0, mm_shuffle(alphaPos, alphaPos, alphaPos, alphaPos));
+    }
+
+    if (negate)
+    {
+      c->pxor(dst0, ptr(g->rconst.r(),
+        RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
+    }
+  }
+
+  void doPackedMultiply(
+    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0, bool moveToT0 = false)
+  {
+    XMMRegister r = c0x0080.r();
+
+    c->pmullw(a0, b0);          // a0 *= b0
+    c->paddusw(a0, r);          // a0 += 80
+    c->movdqa(t0, a0);          // t0  = a0
+    c->psrlw(a0, 8);            // a0 /= 256
+    if (!moveToT0)
+    {
+      c->paddusw(a0, t0);       // a0 += t0
+      c->psrlw(a0, 8);          // a0 /= 256
+    }
+    else
+    {
+      c->paddusw(t0, a0);       // t0 += a0
+      c->psrlw(t0, 8);          // t0 /= 256
+    }
+  }
+
+  void doPackedMultiply_4(
+    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
+    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1)
+  {
+    XMMRegister r = c0x0080.r();
+
+    // Standard case
+    if (t0 != t1)
+    {
+      c->pmullw(a0, b0);          // a0 *= b0
+      c->pmullw(a1, b1);          // a1 *= b1
+      c->paddusw(a0, r);          // a0 += 80
+      c->paddusw(a1, r);          // a1 += 80
+
+      c->movdqa(t0, a0);          // t0  = a0
+      c->movdqa(t1, a1);          // t1  = a1
+      c->psrlw(a0, 8);            // a0 /= 256
+      c->psrlw(a1, 8);            // a1 /= 256
+      c->paddusw(a0, t0);         // a0 += t0
+      c->paddusw(a1, t1);         // a1 += t1
+
+      c->psrlw(a0, 8);            // a0 /= 256
+      c->psrlw(a1, 8);            // a1 /= 256
+    }
+    // Special case if t0 is t1 (can be used to save one regiter if you
+    // haven't it)
+    else
+    {
+      const XMMRegister& t = t0;
+
+      c->pmullw(a0, b0);          // a0 *= b0
+      c->pmullw(a1, b1);          // a1 *= b1
+      c->paddusw(a0, r);          // a0 += 80
+      c->paddusw(a1, r);          // a1 += 80
+
+      c->movdqa(t, a0);           // t   = a0
+      c->psrlw(a0, 8);            // a0 /= 256
+      c->paddusw(a0, t);          // a0 += t
+
+      c->movdqa(t, a1);           // t   = a1
+      c->psrlw(a1, 8);            // a1 /= 256
+      c->paddusw(a1, t);          // a1 += t
+
+      c->psrlw(a0, 8);            // a0 /= 256
+      c->psrlw(a1, 8);            // a1 /= 256
+    }
+  }
+
+  void doPackedMultiplyAdd(
+    const XMMRegister& a0, const XMMRegister& b0,
+    const XMMRegister& c0, const XMMRegister& d0,
+    const XMMRegister& t0, bool moveToT0)
+  {
+    XMMRegister r = c0x0080.r();
+
+    c->pmullw(a0, b0);          // a0 *= b0
+    c->pmullw(c0, d0);          // c0 *= d0
+    c->paddusw(a0, r);          // a0 += 80
+    c->paddusw(a0, c0);         // a0 += c0
+
+    c->movdqa(t0, a0);          // t0  = a0
+    c->psrlw(a0, 8);            // a0 /= 256
+
+    if (!moveToT0)
+    {
+      c->paddusw(a0, t0);       // a0 += t0
+      c->psrlw(a0, 8);          // a0 /= 256
+    }
+    else
+    {
+      c->paddusw(t0, a0);       // t0 += a0
+      c->psrlw(t0, 8);          // t0 /= 256
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // [Members]
+  // --------------------------------------------------------------------------
+
+  UInt32 op;
+
+  XMMRef z;
+  XMMRef c0x0080;
+};
+
+/*
+struct CompositeOp32_Over : public CompositeOp32_Base
+{
+  CompositeOp32_Over(Generator* g, Compiler* c, Function* f) : 
+    CompositeOp32_Base(g, c, f) {}
+  virtual ~CompositeOp32_Over() {}
+
+  virtual void doPixelUnpacked1(
+    const XMMRegister& dst0, const XMMRegister& src0)
+  {
+    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRegister a0 = _a0.r();
+
+    // expand a0
+    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
+    c->paddw(a0, c0x0080.r());
+
+    // composite over
+    c->psubw(src0, dst0);       // src0 -= dst0
+    c->pmullw(src0, a0);        // src0 *= a0
+    c->psllw(dst0, 8);          // dst0 *= 256
+    c->paddw(dst0, src0);       // dst0 += src0
+    c->psrlw(dst0, 8);          // dst0 /= 256
+  }
+
+  virtual void doPixelUnpacked2(
+    const XMMRegister& dst0, const XMMRegister& src0)
+  {
+    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRegister a0 = _a0.r();
+
+    // expand a0
+    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
+    c->pshufhw(a0, a0, mm_shuffle(3, 3, 3, 3));
+    c->paddw(a0, c0x0080.r());
+
+    // composite over
+    c->psubw(src0, dst0);       // src0 -= dst0
+    c->pmullw(src0, a0);        // src0 *= a0
+    c->psllw(dst0, 8);          // dst0 *= 256
+    c->paddw(dst0, src0);       // dst0 += src0
+    c->psrlw(dst0, 8);          // dst0 /= 256
+  }
+
+  virtual void doPixelUnpacked4(
+    const XMMRegister& dst0, const XMMRegister& src0, 
+    const XMMRegister& dst1, const XMMRegister& src1)
+  {
+    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRef _a1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRegister a0 = _a0.r();
+    XMMRegister a1 = _a1.r();
+
+    // expand a0, a1
+    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
+    c->pshuflw(a1, src1, mm_shuffle(3, 3, 3, 3));
+    c->pshufhw(a0, a0, mm_shuffle(3, 3, 3, 3));
+    c->pshufhw(a1, a1, mm_shuffle(3, 3, 3, 3));
+
+    c->paddw(a0, c0x0080.r());
+    c->paddw(a1, c0x0080.r());
+
+    // composite over
+    c->psubw(src0, dst0);       // src0 -= dst0
+    c->psubw(src1, dst1);       // src1 -= dst1
+    c->pmullw(src0, a0);        // src0 *= a0
+    c->pmullw(src1, a1);        // src1 *= a1
+    c->psllw(dst0, 8);          // dst0 *= 256
+    c->psllw(dst1, 8);          // dst1 *= 256
+    c->paddw(dst0, src0);       // dst0 += src0
+    c->paddw(dst1, src1);       // dst1 += src1
+    c->psrlw(dst0, 8);          // dst0 /= 256
+    c->psrlw(dst1, 8);          // dst1 /= 256
+  }
+};
+*/
 
 // ============================================================================
 // [BlitJit::Generator - Construction / Destruction]
@@ -326,424 +769,6 @@ void Generator::fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
   c->endFunction();
 }
 
-// ============================================================================
-// [BlitJit::Generator - blitSpan]
-// ============================================================================
-
-struct CompositeOp32
-{
-  CompositeOp32(Generator* g, Compiler* c, Function* f) : g(g), c(c), f(f) {}
-  virtual ~CompositeOp32() {}
-
-  enum RawFlags
-  {
-    Raw4UnpackFromDst0 = (1 << 0),
-    Raw4UnpackFromSrc0 = (1 << 1),
-    Raw4PackToDst0 = (1 << 2)
-  };
-
-  virtual void init() {};
-  virtual void free() {};
-
-  virtual void doRawPixel1(
-    const XMMRegister& dst0, const XMMRegister& src0) {}
-
-  virtual void doRawPixel2(
-    const XMMRegister& dst0, const XMMRegister& src0) {}
-
-  virtual void doRawPixel4(
-    const XMMRegister& dst0, const XMMRegister& src0,
-    const XMMRegister& dst1, const XMMRegister& src1, UInt32 flags) {}
-
-  virtual void doUnpackedPixel1(
-    const XMMRegister& dst0, const XMMRegister& src0) {}
-
-  virtual void doUnpackedPixel2(
-    const XMMRegister& dst0, const XMMRegister& src0) {}
-
-  virtual void doUnpackedPixel4(
-    const XMMRegister& dst0, const XMMRegister& src0, 
-    const XMMRegister& dst1, const XMMRegister& src1) {}
-
-  Generator* g;
-  Compiler* c;
-  Function* f;
-};
-
-struct CompositeOp32_Base : public CompositeOp32
-{
-  CompositeOp32_Base(Generator* g, Compiler* c, Function* f) : 
-    CompositeOp32(g, c, f) {}
-  virtual ~CompositeOp32_Base() {}
-
-  virtual void init()
-  {
-    g->initRConst();
-
-    z.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    z.alloc();
-
-    c0x0080.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    c0x0080.alloc();
-
-    c->pxor(z.r(), z.r());
-    c->movq(c0x0080.r(), ptr(g->rconst.r(), 
-      RCONST_DISP(Cx00800080008000800080008000800080)));
-  }
-
-  virtual void free()
-  {
-    z.unuse();
-  }
-
-  virtual void doRawPixel1(
-    const XMMRegister& dst0, const XMMRegister& src0)
-  {
-    c->punpcklbw(src0, z.r());
-    c->punpcklbw(dst0, z.r());
-    doUnpackedPixel1(dst0, src0);
-    c->packuswb(dst0, dst0);
-  }
-
-  virtual void doRawPixel2(
-    const XMMRegister& dst0, const XMMRegister& src0)
-  {
-    c->punpcklbw(src0, z.r());
-    c->punpcklbw(dst0, z.r());
-    doUnpackedPixel2(dst0, src0);
-    c->packuswb(dst0, dst0);
-  }
-
-  virtual void doRawPixel4(
-    const XMMRegister& dst0, const XMMRegister& src0,
-    const XMMRegister& dst1, const XMMRegister& src1, UInt32 flags)
-  {
-    if (flags & Raw4UnpackFromSrc0) c->movdqa(src1, src0);
-    if (flags & Raw4UnpackFromDst0) c->movdqa(dst1, dst0);
-
-    if (flags & Raw4UnpackFromSrc0)
-    {
-      c->punpcklbw(src0, z.r());
-      c->punpckhbw(src1, z.r());
-    }
-    else
-    {
-      c->punpcklbw(src0, z.r());
-      c->punpcklbw(src1, z.r());
-    }
-
-    if (flags & Raw4UnpackFromDst0)
-    {
-      c->punpcklbw(dst0, z.r());
-      c->punpckhbw(dst1, z.r());
-    }
-    else
-    {
-      c->punpcklbw(dst0, z.r());
-      c->punpcklbw(dst1, z.r());
-    }
-
-    doUnpackedPixel4(dst0, src0, dst1, src1);
-
-    if (flags & Raw4PackToDst0)
-    {
-      c->packuswb(dst0, dst1);
-    }
-    else
-    {
-      c->packuswb(dst0, dst0);
-      c->packuswb(dst1, dst1);
-    }
-  }
-
-  //! @brief Extract alpha channel.
-  //! @param dst0 Destination XMM register (can be same as @a src).
-  //! @param src0 Source XMM register.
-  //! @param packed Whether extract alpha for packed pixels (two pixels).
-  //! @param alphaPos Alpha position.
-  //! @param negate Whether to negate extracted alpha value.
-  void doExtractAlpha(const XMMRegister& dst0, const XMMRegister& src0, UInt8 packed, UInt8 alphaPos, UInt8 negate = false)
-  {
-    c->pshuflw(dst0, src0, mm_shuffle(alphaPos, alphaPos, alphaPos, alphaPos));
-
-    if (packed)
-    {
-      c->pshufhw(dst0, dst0, mm_shuffle(alphaPos, alphaPos, alphaPos, alphaPos));
-    }
-
-    if (negate)
-    {
-      c->pxor(dst0, ptr(g->rconst.r(),
-        RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
-    }
-  }
-
-  void doPackedMultiply2(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->paddusw(a0, r);          // a0 += 80
-    c->movdqa(t0, a0);          // t0  = a0
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->paddusw(a0, t0);         // a0 += t0
-    c->psrlw(a0, 8);            // a0 /= 256
-  }
-
-  void doPackedMultiply4(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
-    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->pmullw(a1, b1);          // a1 *= b1
-    c->paddusw(a0, r);          // a0 += 80
-    c->paddusw(a1, r);          // a1 += 80
-    c->movdqa(t0, a0);          // t0  = a0
-    c->movdqa(t1, a1);          // t1  = a1
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->psrlw(a1, 8);            // a1 /= 256
-    c->paddusw(a0, t0);         // a0 += t0
-    c->paddusw(a1, t1);         // a1 += t1
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->psrlw(a1, 8);            // a1 /= 256
-  }
-
-  void doPackedMultiplyAdd2(
-    const XMMRegister& a0, const XMMRegister& b0,
-    const XMMRegister& c0, const XMMRegister& d0,
-    const XMMRegister& t0)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->pmullw(c0, d0);          // c0 *= d0
-    c->paddusw(a0, r);          // a0 += 80
-    c->paddusw(a0, c0);         // a0 += c0
-
-    c->movdqa(t0, a0);          // t0  = a0
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->paddusw(a0, t0);         // a0 += t0
-    c->psrlw(a0, 8);            // a0 /= 256
-
-/*
-    a0 = _mm_mullo_pi16 (a0, b0);
-    c0 = _mm_mullo_pi16 (c0, d0);
-    a0 = _mm_adds_pu16 (a0, MC(4x0080));
-    a0 = _mm_adds_pu16 (a0, c0);
-    a0 = _mm_adds_pu16 (a0, _mm_srli_pi16 (a0, 8));
-    a0 = _mm_srli_pi16 (a0, 8);
-*/
-  }
-
-  XMMRef z;
-  XMMRef c0x0080;
-};
-/*
-struct CompositeOp32_Over : public CompositeOp32_Base
-{
-  CompositeOp32_Over(Generator* g, Compiler* c, Function* f) : 
-    CompositeOp32_Base(g, c, f) {}
-  virtual ~CompositeOp32_Over() {}
-
-  virtual void doUnpackedPixel1(
-    const XMMRegister& dst0, const XMMRegister& src0)
-  {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRegister a0 = _a0.r();
-
-    // expand a0
-    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
-    c->paddw(a0, c0x0080.r());
-
-    // composite over
-    c->psubw(src0, dst0);       // src0 -= dst0
-    c->pmullw(src0, a0);        // src0 *= a0
-    c->psllw(dst0, 8);          // dst0 *= 256
-    c->paddw(dst0, src0);       // dst0 += src0
-    c->psrlw(dst0, 8);          // dst0 /= 256
-  }
-
-  virtual void doUnpackedPixel2(
-    const XMMRegister& dst0, const XMMRegister& src0)
-  {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRegister a0 = _a0.r();
-
-    // expand a0
-    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
-    c->pshufhw(a0, a0, mm_shuffle(3, 3, 3, 3));
-    c->paddw(a0, c0x0080.r());
-
-    // composite over
-    c->psubw(src0, dst0);       // src0 -= dst0
-    c->pmullw(src0, a0);        // src0 *= a0
-    c->psllw(dst0, 8);          // dst0 *= 256
-    c->paddw(dst0, src0);       // dst0 += src0
-    c->psrlw(dst0, 8);          // dst0 /= 256
-  }
-
-  virtual void doUnpackedPixel4(
-    const XMMRegister& dst0, const XMMRegister& src0, 
-    const XMMRegister& dst1, const XMMRegister& src1)
-  {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _a1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRegister a0 = _a0.r();
-    XMMRegister a1 = _a1.r();
-
-    // expand a0, a1
-    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
-    c->pshuflw(a1, src1, mm_shuffle(3, 3, 3, 3));
-    c->pshufhw(a0, a0, mm_shuffle(3, 3, 3, 3));
-    c->pshufhw(a1, a1, mm_shuffle(3, 3, 3, 3));
-
-    c->paddw(a0, c0x0080.r());
-    c->paddw(a1, c0x0080.r());
-
-    // composite over
-    c->psubw(src0, dst0);       // src0 -= dst0
-    c->psubw(src1, dst1);       // src1 -= dst1
-    c->pmullw(src0, a0);        // src0 *= a0
-    c->pmullw(src1, a1);        // src1 *= a1
-    c->psllw(dst0, 8);          // dst0 *= 256
-    c->psllw(dst1, 8);          // dst1 *= 256
-    c->paddw(dst0, src0);       // dst0 += src0
-    c->paddw(dst1, src1);       // dst1 += src1
-    c->psrlw(dst0, 8);          // dst0 /= 256
-    c->psrlw(dst1, 8);          // dst1 /= 256
-  }
-};
-*/
-
-struct CompositeOp32_Over : public CompositeOp32_Base
-{
-  CompositeOp32_Over(Generator* g, Compiler* c, Function* f, UInt32 op) : 
-    CompositeOp32_Base(g, c, f), op(op) {}
-  virtual ~CompositeOp32_Over() {}
-
-  virtual void doUnpackedPixel1(
-    const XMMRegister& dst0, const XMMRegister& src0)
-  {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _t0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-    XMMRegister a0 = _a0.r();
-    XMMRegister t0 = _t0.r();
-
-    switch (op)
-    {
-      case Operation::CompositeSrc:
-        // copy operation (optimized in frontends and also by Generator itself)
-        c->movdqa(dst0, src0);
-        break;
-      case Operation::CompositeDest:
-        // no operation (optimized in frontends and also by Generator itself)
-        break;
-      //case Operation::CombineCopy:
-      //case Operation::CombineBlend:
-      case Operation::CompositeOver:
-        doExtractAlpha(a0, src0, 0, 3, true);
-        doPackedMultiply2(dst0, a0, t0);
-        c->paddusb(dst0, src0);
-        break;
-      case Operation::CompositeOverReverse:
-        doExtractAlpha(a0, dst0, 0, 3, true);
-        doPackedMultiply2(src0, a0, t0);
-        c->paddusb(dst0, src0);
-        break;
-      case Operation::CompositeIn:
-        doExtractAlpha(a0, dst0, 0, 3, false);
-        doPackedMultiply2(src0, a0, t0);
-        c->movdqa(dst0, src0);
-        break;
-      case Operation::CompositeInReverse:
-        doExtractAlpha(a0, src0, 0, 3, false);
-        doPackedMultiply2(dst0, a0, t0);
-        break;
-      case Operation::CompositeOut:
-        doExtractAlpha(a0, dst0, 0, 3, true);
-        doPackedMultiply2(src0, a0, t0);
-        c->movdqa(dst0, src0);
-        break;
-      case Operation::CompositeOutReverse:
-        doExtractAlpha(a0, src0, 0, 3, true);
-        doPackedMultiply2(dst0, a0, t0);
-        break;
-      case Operation::CompositeAtop:
-        doExtractAlpha(a0, src0, 0, 3, true);
-        doExtractAlpha(t0, dst0, 0, 3, false);
-        doPackedMultiplyAdd2(src0, t0, dst0, a0, t0);
-        c->movdqa(dst0, src0);
-        break;
-      case Operation::CompositeAtopReverse:
-        doExtractAlpha(a0, src0, 0, 3, false);
-        doExtractAlpha(t0, dst0, 0, 3, true);
-        doPackedMultiplyAdd2(src0, t0, dst0, a0, t0);
-        c->movdqa(dst0, src0);
-        break;
-      case Operation::CompositeXor:
-        doExtractAlpha(a0, src0, 0, 3, true);
-        doExtractAlpha(t0, dst0, 0, 3, true);
-        doPackedMultiplyAdd2(src0, t0, dst0, a0, t0);
-        c->movdqa(dst0, src0);
-        break;
-      case Operation::CompositeAdd:
-        c->paddusb(dst0, src0);
-        break;
-      case Operation::CompositeSubtract:
-        c->psubusb(dst0, src0);
-        break;
-      case Operation::CompositeMultiply:
-        doPackedMultiply2(dst0, src0, t0);
-        break;
-      case Operation::CompositeSaturate:
-      {
-        Label* L_Skip = c->newLabel();
-        Int32Ref td = f->newVariable(VARIABLE_TYPE_INT32, 0);
-        Int32Ref ts = f->newVariable(VARIABLE_TYPE_INT32, 0);
-
-        c->movdqa(t0, dst0);
-        c->movdqa(a0, src0);
-        c->psrlq(t0, 48);
-        c->psrlq(a0, 48);
-        c->movd(td.r(), t0);
-        c->movd(ts.r(), a0);
-        c->neg(td.r());
-        c->cmp(ts.r16(), td.r16());
-        c->jle(L_Skip);
-
-        c->and_(ts.r(), 0xFF); 
-        c->shl(ts.r(), 4);
-        c->movd(a0, td.r());
-        doExtractAlpha(a0, a0, 0, 0, false);
-        c->movdqa(t0, ptr(g->rconst.r(), ts.r(), 0, RCONST_DISP(CxDemultiply)));
-        doPackedMultiply2(a0, t0, t0);
-        doPackedMultiply2(src0, a0, a0);
-
-        c->bind(L_Skip);
-        c->paddusb(dst0, src0);
-        break;
-      }
-    }
-  }
-
-  virtual void doUnpackedPixel2(
-    const XMMRegister& dst0, const XMMRegister& src0)
-  {
-  }
-
-  virtual void doUnpackedPixel4(
-    const XMMRegister& dst0, const XMMRegister& src0, 
-    const XMMRegister& dst1, const XMMRegister& src1)
-  {
-  }
-
-  UInt32 op;
-};
-
 void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
 {
   initConstants();
@@ -806,7 +831,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
       Int32 mainLoopSize = 16;
       Int32 i;
 
-      CompositeOp32_Over c_op(this, c, f, op.id());
+      CompositeOp32 c_op(this, c, f, op.id());
       c_op.init();
 
       // FIXME: Remoeve it, it's only for testing
@@ -831,7 +856,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
       c->bind(L_Align);
       c->movd(srcpix0, ptr(src.r()));
       c->movd(dstpix0, ptr(dst.r()));
-      c_op.doRawPixel1(dstpix0, srcpix0);
+      c_op.doPixelRaw(dstpix0, srcpix0, false);
       c->movd(ptr(dst.r()), dstpix0);
       c->add(src.r(), 4);
       c->add(dst.r(), 4);
@@ -862,7 +887,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
         c->movq(srcpix1, ptr(src.r(), i + 8));
         c->movdqa(dstpix0, ptr(dst.r(), i + 0));
 
-        c_op.doRawPixel4(dstpix0, srcpix0, dstpix1, srcpix1,
+        c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
           CompositeOp32::Raw4UnpackFromDst0 |
           CompositeOp32::Raw4PackToDst0);
 
@@ -887,7 +912,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
 
       c->movd(srcpix0, ptr(src.r()));
       c->movd(dstpix0, ptr(dst.r()));
-      c_op.doRawPixel1(dstpix0, srcpix0);
+      c_op.doPixelRaw(dstpix0, srcpix0, false);
       c->movd(ptr(dst.r()), dstpix0);
 
       c->add(src.r(), 4);
