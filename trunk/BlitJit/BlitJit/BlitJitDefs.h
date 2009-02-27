@@ -64,7 +64,8 @@ struct PixelFormat
   inline UInt32 bShift() const { return _bShift; }
   inline UInt32 aShift() const { return _aShift; }
 
-  inline bool isPremultiplied() const { return static_cast<bool>(_isPremultiplied); }
+  inline UInt32 isPremultiplied() const { _isPremultiplied; }
+  inline UInt32 isFloat() const { return _isFloat; }
 
   inline bool isArgb() const { return _rSize != 0 && _gSize != 0 && _bSize != 0 && _aSize != 0; }
   inline bool isAlpha() const { return _aSize != 0; }
@@ -102,6 +103,7 @@ struct PixelFormat
   UInt32 _aShift;
 
   UInt32 _isPremultiplied : 1;
+  UInt32 _isFloat : 1;
 };
 
 //! @brief Operation.
