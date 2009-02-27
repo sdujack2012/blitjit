@@ -68,8 +68,9 @@ struct CompositeOp32_SSE2 : public GeneratorOp
   // [Construction / Destruction]
   // --------------------------------------------------------------------------
 
-  CompositeOp32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op)
+  CompositeOp32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), complex(1)
   {
+    if (op == Operation::CompositeSaturate) complex = 0;
   }
 
   virtual ~CompositeOp32_SSE2() {}
@@ -293,6 +294,113 @@ struct CompositeOp32_SSE2 : public GeneratorOp
     const XMMRegister& dst0, const XMMRegister& src0,
     const XMMRegister& dst1, const XMMRegister& src1)
   {
+    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRef _t0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+
+    XMMRegister a0 = _a0.r();
+    XMMRegister t0 = _t0.r();
+
+    switch (op)
+    {
+      case Operation::CompositeSrc:
+        // copy operation (optimized in frontends and also by Generator itself)
+        c->movdqa(dst0, src0);
+        c->movdqa(dst1, src1);
+        break;
+      case Operation::CompositeDest:
+        // no operation (optimized in frontends and also by Generator itself)
+        break;
+      case Operation::CompositeOver:
+        doExtractAlpha(a0, src0, 3, true, true);
+        doExtractAlpha(t0, src1, 3, true, true);
+        doPackedMultiply(dst0, a0, a0);
+        doPackedMultiply(dst1, t0, t0);
+        c->paddusb(dst0, src0);
+        c->paddusb(dst1, src1);
+        break;
+      case Operation::CompositeOverReverse:
+        doExtractAlpha(a0, dst0, 3, true, true);
+        doExtractAlpha(t0, dst1, 3, true, true);
+        doPackedMultiply(src0, a0, a0);
+        doPackedMultiply(src1, t0, t0);
+        c->paddusb(dst0, src0);
+        c->paddusb(dst1, src1);
+        break;
+      case Operation::CompositeIn:
+        doExtractAlpha(a0, dst0, 3, false, true);
+        doExtractAlpha(t0, dst1, 3, false, true);
+        doPackedMultiply(src0, a0, dst0, true);
+        doPackedMultiply(src1, t0, dst1, true);
+        break;
+      case Operation::CompositeInReverse:
+        doExtractAlpha(a0, src0, 3, false, true);
+        doExtractAlpha(t0, src1, 3, false, true);
+        doPackedMultiply(dst0, a0, a0);
+        doPackedMultiply(dst1, t0, t0);
+        break;
+      case Operation::CompositeOut:
+        doExtractAlpha(a0, dst0, 3, true, true);
+        doExtractAlpha(t0, dst1, 3, true, true);
+        doPackedMultiply(src0, a0, dst0, true);
+        doPackedMultiply(src1, t0, dst1, true);
+        break;
+      case Operation::CompositeOutReverse:
+        doExtractAlpha(a0, src0, 3, true, true);
+        doExtractAlpha(t0, src1, 3, true, true);
+        doPackedMultiply(dst0, a0, a0);
+        doPackedMultiply(dst1, t0, t0);
+        break;
+      case Operation::CompositeAtop:
+        doExtractAlpha(a0, src0, 3, true, true);
+        doExtractAlpha(t0, dst0, 3, false, true);
+        doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+
+        doExtractAlpha(a0, src1, 3, true, true);
+        doExtractAlpha(t0, dst1, 3, false, true);
+        doPackedMultiplyAdd(src1, t0, dst1, a0, dst1, true);
+        break;
+      case Operation::CompositeAtopReverse:
+        doExtractAlpha(a0, src0, 3, false, true);
+        doExtractAlpha(t0, dst0, 3, true, true);
+        doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+
+        doExtractAlpha(a0, src1, 3, false, true);
+        doExtractAlpha(t0, dst1, 3, true, true);
+        doPackedMultiplyAdd(src1, t0, dst1, a0, dst1, true);
+        break;
+      case Operation::CompositeXor:
+        doExtractAlpha(a0, src0, 3, true, true);
+        doExtractAlpha(t0, dst0, 3, true, true);
+        doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+
+        doExtractAlpha(a0, src1, 3, true, true);
+        doExtractAlpha(t0, dst1, 3, true, true);
+        doPackedMultiplyAdd(src1, t0, dst1, a0, dst1, true);
+        break;
+      case Operation::CompositeClear:
+        // clear operation (optimized in frontends and also by Generator itself)
+        c->pxor(dst0, dst0);
+        c->pxor(dst1, dst1);
+        break;
+      case Operation::CompositeAdd:
+        c->paddusb(dst0, src0);
+        c->paddusb(dst1, src1);
+        break;
+      case Operation::CompositeSubtract:
+        c->psubusb(dst0, src0);
+        c->psubusb(dst1, src1);
+        break;
+      case Operation::CompositeMultiply:
+        doPackedMultiply_4(
+          dst0, src0, a0, 
+          dst1, src1, t0);
+        break;
+      case Operation::CompositeSaturate:
+      {
+        ASMJIT_ASSERT(0);
+        break;
+      }
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -424,6 +532,7 @@ struct CompositeOp32_SSE2 : public GeneratorOp
   // --------------------------------------------------------------------------
 
   UInt32 op;
+  UInt32 complex;
 
   XMMRef z;
   XMMRef c0x0080;
@@ -857,78 +966,93 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
 
       Int32 mainLoopSize = 16;
       Int32 i;
+      UInt32 complex = 1;
 
       CompositeOp32_SSE2 c_op(this, c, f, op.id());
       c_op.init();
 
-      // FIXME: Remoeve it, it's only for testing
-      c->jmp(L_Tail);
+      complex &= c_op.complex;
+
+      if (complex) t.alloc();
 
       // ------------------------------------------------------------------------
       // [Align]
       // ------------------------------------------------------------------------
 
-      // For small size, we will use tail loop
-      c->cmp(cnt.r(), 4);
-      c->jl(L_Tail);
+      if (complex)
+      {
+        // For small size, we will use tail loop
+        c->cmp(cnt.r(), 4);
+        c->jl(L_Tail);
 
-      c->xor_(t.r(), t.r());
-      c->sub(t.r(), dst.r());
-      c->and_(t.r(), 15);
-      c->jz(L_Aligned);
+        c->xor_(t.r(), t.r());
+        c->sub(t.r(), dst.r());
+        c->and_(t.r(), 15);
+        c->jz(L_Aligned);
 
-      c->shr(t.r(), 2);
-      c->sub(cnt.r(), t.r());
+        c->shr(t.r(), 2);
+        c->sub(cnt.r(), t.r());
 
-      c->bind(L_Align);
-      c->movd(srcpix0, ptr(src.r()));
-      c->movd(dstpix0, ptr(dst.r()));
-      c_op.doPixelRaw(dstpix0, srcpix0, false);
-      c->movd(ptr(dst.r()), dstpix0);
-      c->add(src.r(), 4);
-      c->add(dst.r(), 4);
-      c->dec(t.r());
-      c->jnz(L_Align);
+        c->bind(L_Align);
+        c->movd(srcpix0, ptr(src.r()));
+        c->movd(dstpix0, ptr(dst.r()));
+        c_op.doPixelRaw(dstpix0, srcpix0, false);
+        c->movd(ptr(dst.r()), dstpix0);
+        c->add(src.r(), 4);
+        c->add(dst.r(), 4);
+        c->dec(t.r());
+        c->jnz(L_Align);
 
-      // This shouldn't happen, but we must be sure
-      c->mov(t.r(), dst.r());
-      c->and_(t.r(), 3);
-      c->jnz(L_Tail);
+        // This shouldn't happen, but we must be sure
+        c->mov(t.r(), dst.r());
+        c->and_(t.r(), 3);
+        c->jnz(L_Tail);
 
-      c->bind(L_Aligned);
+        c->bind(L_Aligned);
+      }
 
       // ------------------------------------------------------------------------
       // [Loop]
       // ------------------------------------------------------------------------
 
-      c->sub(cnt.r(), mainLoopSize / 4);
-      c->jc(L_Tail);
-
-      // Loop - Src is Unaligned
-      c->align(4);
-      c->bind(L_Loop);
-
-      for (i = 0; i < mainLoopSize; i += 16)
+      if (complex)
       {
-        c->movq(srcpix0, ptr(src.r(), i + 0));
-        c->movq(srcpix1, ptr(src.r(), i + 8));
-        c->movdqa(dstpix0, ptr(dst.r(), i + 0));
+        c->sub(cnt.r(), mainLoopSize / 4);
+        c->jc(L_Tail);
 
-        c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
-          CompositeOp32_SSE2::Raw4UnpackFromDst0 |
-          CompositeOp32_SSE2::Raw4PackToDst0);
+        // Loop - Src is Unaligned
+        c->align(4);
+        c->bind(L_Loop);
 
-        c->movdqa(ptr(dst.r(), i + 0), dstpix0);
+        for (i = 0; i < mainLoopSize; i += 16)
+        {
+          c->movq(srcpix0, ptr(src.r(), i + 0));
+          c->movq(srcpix1, ptr(src.r(), i + 8));
+
+          // FIXME:
+          //c->movdqa(dstpix0, ptr(dst.r(), i + 0));
+          c->movq(dstpix0, ptr(dst.r(), i + 0));
+          c->movq(dstpix1, ptr(dst.r(), i + 8));
+
+          c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
+            /*CompositeOp32_SSE2::Raw4UnpackFromDst0 |*/
+            /*CompositeOp32_SSE2::Raw4PackToDst0*/ 0);
+
+          // FIXME:
+          // c->movdqa(ptr(dst.r(), i + 0), dstpix0);
+          c->movq(ptr(dst.r(), i + 0), dstpix0);
+          c->movq(ptr(dst.r(), i + 8), dstpix1);
+        }
+
+        c->add(src.r(), mainLoopSize);
+        c->add(dst.r(), mainLoopSize);
+
+        c->sub(cnt.r(), mainLoopSize / 4);
+        c->jnc(L_Loop);
+
+        c->add(cnt.r(), mainLoopSize / 4);
+        c->jz(L_Exit);
       }
-
-      c->add(src.r(), mainLoopSize);
-      c->add(dst.r(), mainLoopSize);
-
-      c->sub(cnt.r(), mainLoopSize / 4);
-      c->jnc(L_Loop);
-
-      c->add(cnt.r(), mainLoopSize / 4);
-      c->jz(L_Exit);
 
       // ------------------------------------------------------------------------
       // [Tail]
