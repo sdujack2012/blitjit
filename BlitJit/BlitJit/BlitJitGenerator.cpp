@@ -61,17 +61,18 @@ struct GeneratorOp
 // [BlitJit::CompositeOp32]
 // ============================================================================
 
-struct CompositeOp32 : public GeneratorOp
+//! @brief Implementation of compositing operations for SSE2 instruction set.
+struct CompositeOp32_SSE2 : public GeneratorOp
 {
   // --------------------------------------------------------------------------
   // [Construction / Destruction]
   // --------------------------------------------------------------------------
 
-  CompositeOp32(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op)
+  CompositeOp32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op)
   {
   }
 
-  virtual ~CompositeOp32() {}
+  virtual ~CompositeOp32_SSE2() {}
 
   enum RawFlags
   {
@@ -111,6 +112,28 @@ struct CompositeOp32 : public GeneratorOp
   void doPixelRaw(
     const XMMRegister& dst0, const XMMRegister& src0, bool two)
   {
+    switch (op)
+    {
+      case Operation::CompositeSrc:
+        // copy operation (optimized in frontends and also by Generator itself)
+        c->movdqa(dst0, src0);
+        return;
+      case Operation::CompositeDest:
+        // no operation (optimized in frontends and also by Generator itself)
+        return;
+      case Operation::CompositeClear:
+        // clear operation (optimized in frontends and also by Generator itself)
+        c->pxor(dst0, dst0);
+        return;
+      case Operation::CompositeAdd:
+        // add operation (not needs to be unpacked and packed)
+        c->paddusb(dst0, src0);
+        return;
+      default:
+        // default operations - needs unpacking before and packing after
+        break;
+    }
+
     c->punpcklbw(src0, z.r());
     c->punpcklbw(dst0, z.r());
     doPixelUnpacked(dst0, src0, two);
@@ -221,6 +244,10 @@ struct CompositeOp32 : public GeneratorOp
         doExtractAlpha(a0, src0, 3, true, two);
         doExtractAlpha(t0, dst0, 3, true, two);
         doPackedMultiplyAdd(src0, t0, dst0, a0, dst0, true);
+        break;
+      case Operation::CompositeClear:
+        // clear operation (optimized in frontends and also by Generator itself)
+        c->pxor(dst0, dst0);
         break;
       case Operation::CompositeAdd:
         c->paddusb(dst0, src0);
@@ -831,7 +858,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
       Int32 mainLoopSize = 16;
       Int32 i;
 
-      CompositeOp32 c_op(this, c, f, op.id());
+      CompositeOp32_SSE2 c_op(this, c, f, op.id());
       c_op.init();
 
       // FIXME: Remoeve it, it's only for testing
@@ -841,7 +868,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
       // [Align]
       // ------------------------------------------------------------------------
 
-      // For small size, we will use different smaller loop
+      // For small size, we will use tail loop
       c->cmp(cnt.r(), 4);
       c->jl(L_Tail);
 
@@ -888,8 +915,8 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
         c->movdqa(dstpix0, ptr(dst.r(), i + 0));
 
         c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
-          CompositeOp32::Raw4UnpackFromDst0 |
-          CompositeOp32::Raw4PackToDst0);
+          CompositeOp32_SSE2::Raw4UnpackFromDst0 |
+          CompositeOp32_SSE2::Raw4PackToDst0);
 
         c->movdqa(ptr(dst.r(), i + 0), dstpix0);
       }
