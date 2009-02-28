@@ -35,6 +35,10 @@
 
 namespace BlitJit {
 
+// [BlitJit - Forward declarations]
+struct GeneratorOp;
+struct GeneratorOpComposite32_SSE2;
+
 // [BlitJit - Calling Convention]
 
 #if defined(BLITJIT_X86)
@@ -50,10 +54,22 @@ enum { CConv = AsmJit::CALL_CONV_DEFAULT };
 
 typedef void (BLITJIT_CALL *FillSpanFn)(
   void* dst, const UInt32 src, SysUInt len);
+
 typedef void (BLITJIT_CALL *BlitSpanFn)(
   void* dst, const void* src, SysUInt len);
+
 typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
   void* dst, const void* src, const void* mask, SysUInt len);
+
+typedef void (BLITJIT_CALL *BlitRectFn)(
+  void* dst, const void* src,
+  SysInt dstStride, SysInt srcStride,
+  SysUInt width, SysUInt height);
+
+typedef void (BLITJIT_CALL *BlitRectMaskFn)(
+  void* dst, const void* src, const void* mask,
+  SysInt dstStride, SysInt srcStride, SysInt maskStride,
+  SysUInt width, SysUInt height);
 
 struct Generator
 {
@@ -100,12 +116,23 @@ struct Generator
   //! @brief Generate fill span function.
   virtual void fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
 
-  // [BlitSpan]
+  // [BlitSpan / BlitRect]
 
   //! @brief Generate blit span function.
-  virtual void blitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
+  void blitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
+  //! @brief Generate blit rect function.
+  void blitRect(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
 
-  virtual void blitSpan_MemCpy4(PtrRef& dst, PtrRef& src, SysIntRef& cnt);
+  //! @brief Generate MemCpy32 block.
+  //! @internal
+  void _MemCpy32(
+    PtrRef& dst, PtrRef& src, SysIntRef& cnt);
+
+  //! @brief Generate Composite32 SSE2 optimized block.
+  //! @internal
+  void _Composite32_SSE2(
+    PtrRef& dst, PtrRef& src, SysIntRef& cnt,
+    GeneratorOpComposite32_SSE2& c_op);
 
   // [Helpers]
   void x86MemSet32(AsmJit::PtrRef& dst, AsmJit::Int32Ref& src, AsmJit::SysIntRef& cnt);
@@ -132,11 +159,11 @@ struct Generator
 
   struct Constants
   {
-    XMMData Cx00000000000001000000000000000100; // [0]
+    //XMMData Cx00000000000001000000000000000100; // [0]
     XMMData Cx00800080008000800080008000800080; // [1]
     XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [2]
-    XMMData Cx000000000000FFFF000000000000FFFF; // [3]
-    XMMData CxFFFFFFFFFFFF0100FFFFFFFFFFFF0100; // [4]
+    //XMMData Cx000000000000FFFF000000000000FFFF; // [3]
+    //XMMData CxFFFFFFFFFFFF0100FFFFFFFFFFFF0100; // [4]
     XMMData CxDemultiply[256];
   };
 
