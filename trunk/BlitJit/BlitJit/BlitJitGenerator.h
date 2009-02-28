@@ -35,6 +35,16 @@
 
 namespace BlitJit {
 
+// [BlitJit - Calling Convention]
+
+#if defined(BLITJIT_X86)
+# define BLITJIT_CALL ASMJIT_FASTCALL_2
+enum { CConv = AsmJit::CALL_CONV_MSFASTCALL };
+#else
+# define BLITJIT_CALL
+enum { CConv = AsmJit::CALL_CONV_DEFAULT };
+#endif
+
 //! @addtogroup BlitJit_Main
 //! @{
 
@@ -84,13 +94,6 @@ struct Generator
 
   Generator(AsmJit::Compiler* c);
   virtual ~Generator();
-
-  // [Calling Convention]
-#if defined(ASMJIT_X86)
-  enum { CConv = AsmJit::CALL_CONV_STDCALL };
-#else
-  enum { CConv = AsmJit::CALL_CONV_DEFAULT };
-#endif
 
   // [FillSpan]
 

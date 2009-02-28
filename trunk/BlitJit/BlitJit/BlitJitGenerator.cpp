@@ -68,9 +68,10 @@ struct CompositeOp32_SSE2 : public GeneratorOp
   // [Construction / Destruction]
   // --------------------------------------------------------------------------
 
-  CompositeOp32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), complex(1)
+  CompositeOp32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), unroll(1)
   {
-    if (op == Operation::CompositeSaturate) complex = 0;
+    unroll = 1;
+    if (op == Operation::CompositeSaturate) unroll = 0;
   }
 
   virtual ~CompositeOp32_SSE2() {}
@@ -97,7 +98,7 @@ struct CompositeOp32_SSE2 : public GeneratorOp
     c0x0080.alloc();
 
     c->pxor(z.r(), z.r());
-    c->movq(c0x0080.r(), ptr(g->rconst.r(), 
+    c->movdqa(c0x0080.r(), ptr(g->rconst.r(), 
       RCONST_DISP(Cx00800080008000800080008000800080)));
   }
 
@@ -311,44 +312,58 @@ struct CompositeOp32_SSE2 : public GeneratorOp
         // no operation (optimized in frontends and also by Generator itself)
         break;
       case Operation::CompositeOver:
-        doExtractAlpha(a0, src0, 3, true, true);
-        doExtractAlpha(t0, src1, 3, true, true);
-        doPackedMultiply(dst0, a0, a0);
-        doPackedMultiply(dst1, t0, t0);
+        doExtractAlpha_4(
+          a0, src0, 3, true,
+          t0, src1, 3, true);
+        doPackedMultiply_4(
+          dst0, a0, a0, 
+          dst1, t0, t0);
         c->paddusb(dst0, src0);
         c->paddusb(dst1, src1);
         break;
       case Operation::CompositeOverReverse:
-        doExtractAlpha(a0, dst0, 3, true, true);
-        doExtractAlpha(t0, dst1, 3, true, true);
-        doPackedMultiply(src0, a0, a0);
-        doPackedMultiply(src1, t0, t0);
+        doExtractAlpha_4(
+          a0, dst0, 3, true,
+          t0, dst1, 3, true);
+        doPackedMultiply_4(
+          src0, a0, a0,
+          src1, t0, t0);
         c->paddusb(dst0, src0);
         c->paddusb(dst1, src1);
         break;
       case Operation::CompositeIn:
-        doExtractAlpha(a0, dst0, 3, false, true);
-        doExtractAlpha(t0, dst1, 3, false, true);
-        doPackedMultiply(src0, a0, dst0, true);
-        doPackedMultiply(src1, t0, dst1, true);
+        doExtractAlpha_4(
+          a0, dst0, 3, false,
+          t0, dst1, 3, false);
+        doPackedMultiply_4(
+          src0, a0, dst0, 
+          src1, t0, dst1, 
+          true);
         break;
       case Operation::CompositeInReverse:
-        doExtractAlpha(a0, src0, 3, false, true);
-        doExtractAlpha(t0, src1, 3, false, true);
-        doPackedMultiply(dst0, a0, a0);
-        doPackedMultiply(dst1, t0, t0);
+        doExtractAlpha_4(
+          a0, src0, 3, false,
+          t0, src1, 3, false);
+        doPackedMultiply_4(
+          dst0, a0, a0,
+          dst1, t0, t0);
         break;
       case Operation::CompositeOut:
-        doExtractAlpha(a0, dst0, 3, true, true);
-        doExtractAlpha(t0, dst1, 3, true, true);
-        doPackedMultiply(src0, a0, dst0, true);
-        doPackedMultiply(src1, t0, dst1, true);
+        doExtractAlpha_4(
+          a0, dst0, 3, true,
+          t0, dst1, 3, true);
+        doPackedMultiply_4(
+          src0, a0, dst0,
+          src1, t0, dst1, 
+          true);
         break;
       case Operation::CompositeOutReverse:
-        doExtractAlpha(a0, src0, 3, true, true);
-        doExtractAlpha(t0, src1, 3, true, true);
-        doPackedMultiply(dst0, a0, a0);
-        doPackedMultiply(dst1, t0, t0);
+        doExtractAlpha_4(
+          a0, src0, 3, true,
+          t0, src1, 3, true);
+        doPackedMultiply_4(
+          dst0, a0, a0,
+          dst1, t0, t0);
         break;
       case Operation::CompositeAtop:
         doExtractAlpha(a0, src0, 3, true, true);
@@ -415,18 +430,40 @@ struct CompositeOp32_SSE2 : public GeneratorOp
   //! @param alphaPos Alpha position.
   //! @param negate Whether to negate extracted alpha values (255 - alpha).
   void doExtractAlpha(
-    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos, UInt8 negate, bool two)
+    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0, bool two)
   {
-    c->pshuflw(dst0, src0, mm_shuffle(alphaPos, alphaPos, alphaPos, alphaPos));
+    c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
 
     if (two)
     {
-      c->pshufhw(dst0, dst0, mm_shuffle(alphaPos, alphaPos, alphaPos, alphaPos));
+      c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
     }
 
-    if (negate)
+    if (negate0)
     {
       c->pxor(dst0, ptr(g->rconst.r(),
+        RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
+    }
+  }
+
+  void doExtractAlpha_4(
+    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0,
+    const XMMRegister& dst1, const XMMRegister& src1, UInt8 alphaPos1, UInt8 negate1)
+  {
+    c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+    c->pshuflw(dst1, src1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
+
+    c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+    c->pshufhw(dst1, dst1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
+
+    if (negate0)
+    {
+      c->pxor(dst0, ptr(g->rconst.r(),
+        RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
+    }
+    if (negate1)
+    {
+      c->pxor(dst1, ptr(g->rconst.r(),
         RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
     }
   }
@@ -454,7 +491,7 @@ struct CompositeOp32_SSE2 : public GeneratorOp
 
   void doPackedMultiply_4(
     const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
-    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1)
+    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1, bool moveToT0T1 = false)
   {
     XMMRegister r = c0x0080.r();
 
@@ -470,17 +507,31 @@ struct CompositeOp32_SSE2 : public GeneratorOp
       c->movdqa(t1, a1);          // t1  = a1
       c->psrlw(a0, 8);            // a0 /= 256
       c->psrlw(a1, 8);            // a1 /= 256
-      c->paddusw(a0, t0);         // a0 += t0
-      c->paddusw(a1, t1);         // a1 += t1
+      if (moveToT0T1)
+      {
+        c->paddusw(t0, a0);       // t0 += a0
+        c->paddusw(t1, a1);       // t1 += a1
 
-      c->psrlw(a0, 8);            // a0 /= 256
-      c->psrlw(a1, 8);            // a1 /= 256
+        c->psrlw(t0, 8);          // t0 /= 256
+        c->psrlw(t1, 8);          // t1 /= 256
+      }
+      else
+      {
+        c->paddusw(a0, t0);       // a0 += t0
+        c->paddusw(a1, t1);       // a1 += t1
+
+        c->psrlw(a0, 8);          // a0 /= 256
+        c->psrlw(a1, 8);          // a1 /= 256
+      }
     }
     // Special case if t0 is t1 (can be used to save one regiter if you
     // haven't it)
     else
     {
       const XMMRegister& t = t0;
+
+      // Can't be moved to t0 and t1 if they are same!
+      BLITJIT_ASSERT(moveToT0T1 == 0);
 
       c->pmullw(a0, b0);          // a0 *= b0
       c->pmullw(a1, b1);          // a1 *= b1
@@ -532,7 +583,7 @@ struct CompositeOp32_SSE2 : public GeneratorOp
   // --------------------------------------------------------------------------
 
   UInt32 op;
-  UInt32 complex;
+  UInt32 unroll;
 
   XMMRef z;
   XMMRef c0x0080;
@@ -923,7 +974,6 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
   PtrRef src = f->argument(1);
   SysIntRef cnt = f->argument(2);
 
-  cnt.setPreferredRegister(REG_NCX);
   cnt.setPriority(0);
   cnt.alloc();
 
@@ -966,20 +1016,20 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
 
       Int32 mainLoopSize = 16;
       Int32 i;
-      UInt32 complex = 1;
+      UInt32 unroll = 1;
 
       CompositeOp32_SSE2 c_op(this, c, f, op.id());
       c_op.init();
 
-      complex &= c_op.complex;
+      unroll &= c_op.unroll;
 
-      if (complex) t.alloc();
+      if (unroll) t.alloc();
 
       // ------------------------------------------------------------------------
       // [Align]
       // ------------------------------------------------------------------------
 
-      if (complex)
+      if (unroll)
       {
         // For small size, we will use tail loop
         c->cmp(cnt.r(), 4);
@@ -1015,7 +1065,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
       // [Loop]
       // ------------------------------------------------------------------------
 
-      if (complex)
+      if (unroll)
       {
         c->sub(cnt.r(), mainLoopSize / 4);
         c->jc(L_Tail);
@@ -1024,24 +1074,31 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
         c->align(4);
         c->bind(L_Loop);
 
+        //c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
+        //c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
+
         for (i = 0; i < mainLoopSize; i += 16)
         {
           c->movq(srcpix0, ptr(src.r(), i + 0));
           c->movq(srcpix1, ptr(src.r(), i + 8));
 
-          // FIXME:
-          //c->movdqa(dstpix0, ptr(dst.r(), i + 0));
-          c->movq(dstpix0, ptr(dst.r(), i + 0));
-          c->movq(dstpix1, ptr(dst.r(), i + 8));
+          // We are using movdqa instead of two movq instructions, it 
+          // should be faster than this:
+          //   c->movq(dstpix0, ptr(dst.r(), i + 0));
+          //   c->movq(dstpix1, ptr(dst.r(), i + 8));
+          c->movdqa(dstpix0, ptr(dst.r(), i + 0));
 
+          // If we used movdqa and destination is only in dstpix0, we must set
+          // Raw4UnpackFromDst0 flag. We also want to pack resulting pixels to
+          // dstpix0 so we also set Raw4PackToDst0.
           c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
-            /*CompositeOp32_SSE2::Raw4UnpackFromDst0 |*/
-            /*CompositeOp32_SSE2::Raw4PackToDst0*/ 0);
+            CompositeOp32_SSE2::Raw4UnpackFromDst0 |
+            CompositeOp32_SSE2::Raw4PackToDst0);
 
-          // FIXME:
-          // c->movdqa(ptr(dst.r(), i + 0), dstpix0);
-          c->movq(ptr(dst.r(), i + 0), dstpix0);
-          c->movq(ptr(dst.r(), i + 8), dstpix1);
+          // movdqa also instead of two movq:
+          //   c->movq(ptr(dst.r(), i + 0), dstpix0);
+          //   c->movq(ptr(dst.r(), i + 8), dstpix1);
+          c->movdqa(ptr(dst.r(), i + 0), dstpix0);
         }
 
         c->add(src.r(), mainLoopSize);

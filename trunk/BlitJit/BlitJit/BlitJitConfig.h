@@ -91,14 +91,6 @@ namespace BlitJit
 # endif
 #endif
 
-// [BlitJit - Calling Convention]
-
-#if defined(BLITJIT_X86)
-# define BLITJIT_CALL ASMJIT_STDCALL
-#else
-# define BLITJIT_CALL
-#endif
-
 // [BlitJit - Types]
 namespace BlitJit
 {
