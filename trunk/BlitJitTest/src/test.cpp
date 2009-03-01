@@ -8,20 +8,59 @@
 #include <SDL.h>
 #include <SDL_image.h>
 
+#if ASMJIT_OS == ASMJIT_POSIX
+#include <sys/time.h>
+#endif
+
+// #define USE_CAIRO
+
+#if defined(USE_CAIRO)
+#include <cairo.h>
+
+cairo_surface_t* CairoFromSdl(SDL_Surface* s)
+{
+  return cairo_image_surface_create_for_data(
+    (unsigned char*)s->pixels,
+    CAIRO_FORMAT_ARGB32,
+    s->w,
+    s->h,
+    s->pitch);
+}
+#endif // USE_CAIRO
+
+struct BenchmarkIt
+{
+  BenchmarkIt() : t(0) {}
+  ~BenchmarkIt() {}
+
+  BlitJit::UInt32 start() { t = getTicks()    ; return t; }
+  BlitJit::UInt32 delta() { t = getTicks() - t; return t; }
+
+  static AsmJit::UInt32 getTicks()
+  {
+#if ASMJIT_OS == ASMJIT_WINDOWS
+    return GetTickCount();
+#else
+    AsmJit::UInt32 ticks;
+	  timeval now;
+
+	  gettimeofday(&now, NULL);
+	  ticks = (now.tv_sec) * 1000 + (now.tv_usec) / 1000;
+	  return ticks;
+#endif
+  }
+
+  AsmJit::UInt32 t;
+};
+
 struct JitManager
 {
   JitManager();
   ~JitManager();
 
-  BlitJit::FillSpanFn getFillSpan(
-    BlitJit::UInt32 dId,
-    BlitJit::UInt32 sId,
-    BlitJit::UInt32 oId);
-
-  BlitJit::BlitSpanFn getBlitSpan(
-    BlitJit::UInt32 dId,
-    BlitJit::UInt32 sId,
-    BlitJit::UInt32 oId);
+  BlitJit::FillSpanFn getFillSpan(BlitJit::UInt32 dId, BlitJit::UInt32 sId, BlitJit::UInt32 oId);
+  BlitJit::BlitSpanFn getBlitSpan(BlitJit::UInt32 dId, BlitJit::UInt32 sId, BlitJit::UInt32 oId);
+  BlitJit::BlitRectFn getBlitRect(BlitJit::UInt32 dId, BlitJit::UInt32 sId, BlitJit::UInt32 oId);
 
   // Memory manager
   BlitJit::MemoryManager memmgr;
@@ -37,17 +76,24 @@ struct JitManager
     BlitSpanFnCount = 
       BlitJit::PixelFormat::Count * 
       BlitJit::PixelFormat::Count * 
+      BlitJit::Operation::Count,
+
+    BlitRectFnCount =
+      BlitJit::PixelFormat::Count * 
+      BlitJit::PixelFormat::Count * 
       BlitJit::Operation::Count 
   };
 
   BlitJit::FillSpanFn fillSpan[BlitSpanFnCount];
   BlitJit::BlitSpanFn blitSpan[BlitSpanFnCount];
+  BlitJit::BlitRectFn blitRect[BlitRectFnCount];
 };
 
 JitManager::JitManager()
 {
   memset(fillSpan, 0, sizeof(fillSpan));
   memset(blitSpan, 0, sizeof(blitSpan));
+  memset(blitRect, 0, sizeof(blitRect));
 }
 
 JitManager::~JitManager()
@@ -77,7 +123,7 @@ BlitJit::FillSpanFn JitManager::getFillSpan(
       BlitJit::Api::pixelFormats[dId],
       BlitJit::Api::pixelFormats[sId], 
       BlitJit::Api::operations[oId]);
-    fn = reinterpret_cast<BlitJit::FillSpanFn>(memmgr.submit(c));
+    fn = AsmJit::function_cast<BlitJit::FillSpanFn>(memmgr.submit(c));
 
     fillSpan[pos] = fn;
     return fn;
@@ -107,9 +153,39 @@ BlitJit::BlitSpanFn JitManager::getBlitSpan(
       BlitJit::Api::pixelFormats[dId],
       BlitJit::Api::pixelFormats[sId], 
       BlitJit::Api::operations[oId]);
-    fn = reinterpret_cast<BlitJit::BlitSpanFn>(memmgr.submit(c));
+    fn = AsmJit::function_cast<BlitJit::BlitSpanFn>(memmgr.submit(c));
 
     blitSpan[pos] = fn;
+    return fn;
+  }
+}
+
+BlitJit::BlitRectFn JitManager::getBlitRect(
+  BlitJit::UInt32 dId,
+  BlitJit::UInt32 sId,
+  BlitJit::UInt32 oId)
+{
+  BlitJit::SysUInt pos = (
+    dId * BlitJit::Operation::Count * BlitJit::PixelFormat::Count +
+    sId * BlitJit::Operation::Count +
+    oId
+  );
+
+  // TODO: Threads
+  BlitJit::BlitRectFn fn = blitRect[pos];
+  if (fn) return fn;
+
+  {
+    AsmJit::Compiler c;
+    BlitJit::Generator gen(&c);
+
+    gen.blitRect(
+      BlitJit::Api::pixelFormats[dId],
+      BlitJit::Api::pixelFormats[sId], 
+      BlitJit::Api::operations[oId]);
+    fn = AsmJit::function_cast<BlitJit::BlitRectFn>(memmgr.submit(c));
+
+    blitRect[pos] = fn;
     return fn;
   }
 }
@@ -169,13 +245,13 @@ int Application::run(int width, int height, int depth)
 static inline BlitJit::UInt32 premultiply(BlitJit::UInt32 x)
 {
   BlitJit::UInt32 a = x >> 24;
-  BlitJit::UInt32 t = (x & 0xff00ff) * a;
-  t = (t + ((t >> 8) & 0xff00ff) + 0x800080) >> 8;
-  t &= 0xff00ff;
+  BlitJit::UInt32 t = (x & 0x00FF00FF) * a;
+  t = (t + ((t >> 8) & 0x00FF00FF) + 0x00800080) >> 8;
+  t &= 0x00FF00FF;
 
-  x = ((x >> 8) & 0xff) * a;
-  x = (x + ((x >> 8) & 0xff) + 0x80);
-  x &= 0xff00;
+  x = ((x >> 8) & 0x000000FF) * a;
+  x = (x + ((x >> 8) & 0x000000FF) + 0x00000080);
+  x &= 0x0000FF00;
   x |= t | (a << 24);
   return x;
 }
@@ -309,11 +385,6 @@ void Application::MyBlit(SDL_Surface* dst, int x, int y, SDL_Surface* src, BlitJ
   int w = x2 - x1;
   int h = y2 - y1;
 
-  BlitJit::BlitSpanFn blitSpan = jitmgr.getBlitSpan(
-    BlitJit::PixelFormat::ARGB32,
-    BlitJit::PixelFormat::ARGB32,
-    op);
-
   BlitJit::UInt8* dstPixels = (BlitJit::UInt8*)dst->pixels;
   BlitJit::UInt8* srcPixels = (BlitJit::UInt8*)src->pixels;
   BlitJit::SysInt dstStride = (BlitJit::SysInt)dst->pitch;
@@ -322,11 +393,27 @@ void Application::MyBlit(SDL_Surface* dst, int x, int y, SDL_Surface* src, BlitJ
   dstPixels += y1 * dstStride + x1 * 4;
   srcPixels += yoff * srcStride + xoff * 4;
 
+jitmgr.getBlitSpan(
+    BlitJit::PixelFormat::ARGB32,
+    BlitJit::PixelFormat::ARGB32,
+    op);
+  BlitJit::BlitRectFn blitRect = jitmgr.getBlitRect(
+    BlitJit::PixelFormat::ARGB32,
+    BlitJit::PixelFormat::ARGB32,
+    op);
+  blitRect(dstPixels, srcPixels, dstStride, srcStride, (BlitJit::SysUInt)w, (BlitJit::SysUInt)h);
+
+/*
+  BlitJit::BlitSpanFn blitSpan = jitmgr.getBlitSpan(
+    BlitJit::PixelFormat::ARGB32,
+    BlitJit::PixelFormat::ARGB32,
+    op);
   BlitJit::SysUInt i;
   for (i = 0; i < (BlitJit::SysUInt)h; i++, dstPixels += dstStride, srcPixels += srcStride)
   {
     blitSpan(dstPixels, srcPixels, (BlitJit::SysUInt)w);
   }
+*/
 }
 
 void Application::onRender()
@@ -337,7 +424,8 @@ void Application::onRender()
   SDL_LockSurface(img[2]);
   SDL_LockSurface(img[3]);
 
-  //DWORD t = GetTickCount();
+  BenchmarkIt benchmark;
+  benchmark.start();
 
   int w = screen->w;
   int h = screen->h;
@@ -349,13 +437,10 @@ void Application::onRender()
   }
 */
 
-  //img->format->Amask = 0;
-  //img->format->Ashift = 0;
-  //img->format->Aloss = 0;
-
+#if 0
   {
     int x = 0, y = 0;
-    memset(screen->pixels, 255, screen->h * screen->pitch);
+    memset(screen->pixels, 0, screen->h * screen->pitch);
     for (BlitJit::SysUInt i = 0; i < BlitJit::Operation::Count; i++)
     {
       SDL_Surface* s = SDL_ConvertSurface(img[1], img[0]->format, 0);
@@ -368,20 +453,51 @@ void Application::onRender()
 
     //fprintf(stderr, "Used %d\n", (int)jitmgr.memmgr.used());
   }
+#endif
 
-  for (BlitJit::SysUInt i = 0; i < 0; i++)
+#if 1
+  for (BlitJit::SysUInt i = 0; i < 10000; i++)
   {
     SDL_Surface* s = img[rand() % 4];
 
+    //s->format->Amask = 0;
     //SDL_Rect srcrect = { 0, 0, s->w, s->h };
     //SDL_Rect dstrect = { rand() % (w - s->w), rand() % (h - s->h), s->w, s->h };
     //SDL_LowerBlit(s, &srcrect, screen, &dstrect);
 
     MyBlit(screen, rand() % (w - s->w), rand() % (h - s->h), s, BlitJit::Operation::CompositeOver);
   }
+#endif
 
-  //t = GetTickCount() - t;
-  //log("Ticks: %u\n", t);
+#if 0 && defined (USE_CAIRO)
+  cairo_surface_t *c_screen = CairoFromSdl(screen);
+  cairo_surface_t *c_img[4];
+
+  c_img[0] = CairoFromSdl(img[0]);
+  c_img[1] = CairoFromSdl(img[1]);
+  c_img[2] = CairoFromSdl(img[2]);
+  c_img[3] = CairoFromSdl(img[3]);
+
+  cairo_t *cr = cairo_create(c_screen);
+
+  for (BlitJit::SysUInt i = 0; i < 10000; i++)
+  {
+    int r = rand() % 4;
+    cairo_surface_t* s = c_img[r];
+    cairo_set_source_surface(cr, s, rand() % (w - img[r]->w), rand() % (h - img[r]->h));
+    cairo_paint(cr);
+  }
+
+  cairo_destroy(cr);
+  cairo_surface_destroy(c_screen);
+  cairo_surface_destroy(c_img[0]);
+  cairo_surface_destroy(c_img[1]);
+  cairo_surface_destroy(c_img[2]);
+  cairo_surface_destroy(c_img[3]);
+
+#endif // USE_CAIRO
+
+  log("Ticks: %u\n", benchmark.delta());
 
   SDL_UnlockSurface(img[3]);
   SDL_UnlockSurface(img[2]);
@@ -393,7 +509,7 @@ void Application::onRender()
 
 void Application::onPause()
 {
-  SDL_Delay(10);
+  SDL_Delay(1);
 }
 
 void Application::onEvent(SDL_Event* ev)
