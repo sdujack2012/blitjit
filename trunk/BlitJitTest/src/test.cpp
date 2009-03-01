@@ -44,9 +44,9 @@ struct BenchmarkIt
     AsmJit::UInt32 ticks;
 	  timeval now;
 
-	  gettimeofday(&now, NULL);
-	  ticks = (now.tv_sec) * 1000 + (now.tv_usec) / 1000;
-	  return ticks;
+    gettimeofday(&now, NULL);
+    ticks = (now.tv_sec) * 1000 + (now.tv_usec) / 1000;
+    return ticks;
 #endif
   }
 
@@ -393,10 +393,6 @@ void Application::MyBlit(SDL_Surface* dst, int x, int y, SDL_Surface* src, BlitJ
   dstPixels += y1 * dstStride + x1 * 4;
   srcPixels += yoff * srcStride + xoff * 4;
 
-jitmgr.getBlitSpan(
-    BlitJit::PixelFormat::ARGB32,
-    BlitJit::PixelFormat::ARGB32,
-    op);
   BlitJit::BlitRectFn blitRect = jitmgr.getBlitRect(
     BlitJit::PixelFormat::ARGB32,
     BlitJit::PixelFormat::ARGB32,
