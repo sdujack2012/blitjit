@@ -74,7 +74,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
 
   GeneratorOpComposite32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), unroll(1)
   {
-    unroll = 0;
+    unroll = 1;
     unpackUsingZ = 1;
 
     if (op == Operation::CompositeSaturate) unroll = 0;
@@ -310,8 +310,8 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
   void doPixelUnpacked(
     const XMMRegister& dst0, const XMMRegister& src0, bool two)
   {
-    XMMRef _t0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _t1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRef _t0(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _t1(f->newVariable(VARIABLE_TYPE_XMM, 0));
 
     XMMRegister t0 = _t0.r();
     XMMRegister t1 = _t1.r();
@@ -1130,6 +1130,7 @@ Generator::Generator(Compiler* c) :
   c(c),
   f(NULL),
   optimize(OptimizeX86),
+  prefetch(0),
   features(cpuInfo()->features),
   body(0)
 {
@@ -1625,8 +1626,10 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->align(8);
     c->bind(L_Loop);
 
-    //c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-    //c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
+    if (prefetch) 
+    {
+      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
+    }
 
     for (i = 0; i < mainLoopSize; i += 32)
     {
@@ -1748,8 +1751,10 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->align(16);
     c->bind(L_Loop);
 
-    c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-    //c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
+    if (prefetch) 
+    {
+      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
+    }
 
     for (i = 0; i < mainLoopSize; i += 64)
     {
@@ -1899,6 +1904,10 @@ void Generator::_Composite32_SSE2(
     c->align(16);
     c->bind(L_Loop);
 
+    if (prefetch) 
+    {
+      c->prefetch(ptr(src.r(), 32), PREFETCH_T0);
+    }
     //c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
     //c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
 
@@ -1927,27 +1936,45 @@ void Generator::_Composite32_SSE2(
 #else
     for (i = 0; i < mainLoopSize; i += 16)
     {
-      //c->movdqu(srcpix0, ptr(src.r(), i + 0));
-      c->movq(srcpix0, ptr(src.r(), i + 0));
-      c->movq(srcpix1, ptr(src.r(), i + 8));
+      Label *L_LocalLoopExit = c->newLabel();
 
-      // We are using movdqa instead of two movq instructions, it
-      // should be faster than this:
-      //   c->movq(dstpix0, ptr(dst.r(), i + 0));
-      //   c->movq(dstpix1, ptr(dst.r(), i + 8));
+      c->movdqu(srcpix0, ptr(src.r(), i + 0));
+/*
+      Label *L_1 = c->newLabel();
+      c->movdqa(srcpix1, srcpix0);
+      c->pcmpeqb(srcpix1, ptr(rconst.r(), RCONST_DISP(CxFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)));
+      c->pmovmskb(t.r32(), srcpix1);
+      c->and_(t.r32(), 0x8888);
+      c->cmp(t.r32(), 0x8888);
+      c->jnz(L_1);
+      c->movdqa(ptr(dst.r(), i + 0), srcpix0);
+      c->jmp(L_LocalLoopExit);
+      c->bind(L_1);
+*/
+
+      // This can skip compositing of pixels with zero alpha
+      if (c_op.op == Operation::CompositeOver)
+      {
+        c->pxor(srcpix1, srcpix1);
+        c->pcmpeqb(srcpix1, srcpix0);
+        c->pmovmskb(t.r32(), srcpix1);
+        c->and_(t.r32(), 0x8888);
+        c->cmp(t.r32(), 0x8888);
+        c->jz(L_LocalLoopExit);
+      }
+
       c->movdqa(dstpix0, ptr(dst.r(), i + 0));
 
-      // If we used movdqa and destination is only in dstpix0, we must set
-      // Raw4UnpackFromDst0 flag. We also want to pack resulting pixels to
-      // dstpix0 so we also set Raw4PackToDst0.
+      // Source and destination is in srcpix0 and dstpix0, also we want to
+      // pack destination to dstpix0.
       c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
+        GeneratorOpComposite32_SSE2::Raw4UnpackFromSrc0 |
         GeneratorOpComposite32_SSE2::Raw4UnpackFromDst0 |
         GeneratorOpComposite32_SSE2::Raw4PackToDst0);
 
-      // movdqa also instead of two movq:
-      //   c->movq(ptr(dst.r(), i + 0), dstpix0);
-      //   c->movq(ptr(dst.r(), i + 8), dstpix1);
       c->movdqa(ptr(dst.r(), i + 0), dstpix0);
+
+      c->bind(L_LocalLoopExit);
     }
 #endif // UNROLL_8
     c->add(src.r(), mainLoopSize);
@@ -2163,6 +2190,7 @@ void Generator::initConstants()
     //c->Cx00000000000001000000000000000100.set_uw(0x0000, 0x0000, 0x0000, 0x0100, 0x0000, 0x0000, 0x0000, 0x0100);
     c->Cx00800080008000800080008000800080.set_uw(0x0080, 0x0080, 0x0080, 0x0080, 0x0080, 0x0080, 0x0080, 0x0080);
     c->Cx00FF00FF00FF00FF00FF00FF00FF00FF.set_uw(0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF);
+    c->CxFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.set_uw(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
     //c->Cx000000000000FFFF000000000000FFFF.set_uw(0x0000, 0x0000, 0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0xFFFF);
     //c->CxFFFFFFFFFFFF0100FFFFFFFFFFFF0100.set_uw(0xFFFF, 0xFFFF, 0xFFFF, 0x0100, 0xFFFF, 0xFFFF, 0xFFFF, 0x0100);
 

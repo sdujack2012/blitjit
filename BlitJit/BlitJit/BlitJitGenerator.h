@@ -42,8 +42,8 @@ struct GeneratorOpComposite32_SSE2;
 // [BlitJit - Calling Convention]
 
 #if defined(BLITJIT_X86)
-# define BLITJIT_CALL ASMJIT_FASTCALL_2
-enum { CConv = AsmJit::CALL_CONV_MSFASTCALL };
+# define BLITJIT_CALL ASMJIT_STDCALL
+enum { CConv = AsmJit::CALL_CONV_STDCALL };
 #else
 # define BLITJIT_CALL
 enum { CConv = AsmJit::CALL_CONV_DEFAULT };
@@ -162,6 +162,7 @@ struct Generator
     //XMMData Cx00000000000001000000000000000100; // [0]
     XMMData Cx00800080008000800080008000800080; // [1]
     XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [2]
+    XMMData CxFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF; // [2]
     //XMMData Cx000000000000FFFF000000000000FFFF; // [3]
     //XMMData CxFFFFFFFFFFFF0100FFFFFFFFFFFF0100; // [4]
     XMMData CxDemultiply[256];
@@ -178,6 +179,8 @@ struct Generator
   AsmJit::Function* f;
   //! @brief Cpu optimizations to use.
   UInt32 optimize;
+  //! @brief Tells generator if it should use data prefetching.
+  UInt32 prefetch;
   //! @brief Cpu features, see @c AsmJit::CpuInfo::Feature enumeration.
   UInt32 features;
   //! @brief Function body flags.
