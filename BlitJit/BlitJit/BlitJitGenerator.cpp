@@ -1051,7 +1051,7 @@ Generator::~Generator()
 // [BlitJit::Generator - fillSpan]
 // ============================================================================
 
-void Generator::fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+void Generator::genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
 {
   initConstants();
 
@@ -1320,7 +1320,11 @@ void Generator::fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
   c->endFunction();
 }
 
-void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+{
+}
+
+void Generator::genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
 {
   initConstants();
 
@@ -1378,7 +1382,7 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
   c->endFunction();
 }
 
-void Generator::blitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
 {
   initConstants();
 

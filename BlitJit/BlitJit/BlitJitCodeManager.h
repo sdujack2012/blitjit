@@ -45,26 +45,28 @@ struct CodeManager
   ~CodeManager();
 
   FillSpanFn getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId);
-  BlitSpanFn getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId);
-
   FillRectFn getFillRect(UInt32 dId, UInt32 sId, UInt32 oId);
+
+  BlitSpanFn getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId);
   BlitRectFn getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId);
+
+  inline MemoryManager& memmgr() { return _memmgr; }
 
   // Functions
   enum
   {
     FillSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
-    BlitSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
-
     FillRectFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
+
+    BlitSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
     BlitRectFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count 
   };
 
   // Cache
   FillSpanFn _fillSpan[FillSpanFnCount];
-  BlitSpanFn _blitSpan[BlitSpanFnCount];
-
   FillRectFn _fillRect[FillSpanFnCount];
+
+  BlitSpanFn _blitSpan[BlitSpanFnCount];
   BlitRectFn _blitRect[BlitRectFnCount];
 
   // Memory manager
