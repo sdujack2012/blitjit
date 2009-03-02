@@ -147,6 +147,13 @@ struct Operation
     CompositeAdd,
     CompositeSubtract,
     CompositeMultiply,
+    CompositeScreen,
+    CompositeDarken,
+    CompositeLighten,
+    CompositeDifference,
+    CompositeExclusion,
+    CompositeInvert,
+    CompositeInvertRgb,
     CompositeSaturate,
 
     Count

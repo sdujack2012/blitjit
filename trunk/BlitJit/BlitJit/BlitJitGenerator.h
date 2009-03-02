@@ -82,6 +82,8 @@ struct Generator
   typedef AsmJit::MMRegister MMRegister;
   typedef AsmJit::XMMRegister XMMRegister;
 
+  typedef AsmJit::Mem Mem;
+
   typedef AsmJit::PtrRef PtrRef;
   typedef AsmJit::Int32Ref Int32Ref;
   typedef AsmJit::SysIntRef SysIntRef;
@@ -114,7 +116,7 @@ struct Generator
   // [FillSpan]
 
   //! @brief Generate fill span function.
-  virtual void fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
+  void fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
 
   // [BlitSpan / BlitRect]
 
@@ -135,6 +137,11 @@ struct Generator
     GeneratorOpComposite32_SSE2& c_op);
 
   // [Helpers]
+
+  void stream_mov(const Mem& dst, const Register& src);
+  void stream_movq(const Mem& dst, const MMRegister& src);
+  void stream_movdq(const Mem& dst, const XMMRegister& src);
+
   void x86MemSet32(AsmJit::PtrRef& dst, AsmJit::Int32Ref& src, AsmJit::SysIntRef& cnt);
 
   // variables in fomrat cN means constants, index is N - Constants[N]
@@ -159,12 +166,19 @@ struct Generator
 
   struct Constants
   {
-    //XMMData Cx00000000000001000000000000000100; // [0]
-    XMMData Cx00800080008000800080008000800080; // [1]
-    XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [2]
-    XMMData CxFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF; // [2]
-    //XMMData Cx000000000000FFFF000000000000FFFF; // [3]
-    //XMMData CxFFFFFFFFFFFF0100FFFFFFFFFFFF0100; // [4]
+    XMMData Cx00800080008000800080008000800080; // [0]
+    XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [1]
+    
+    XMMData Cx000000FF00FF00FF000000FF00FF00FF; // [2]
+    XMMData Cx00FF000000FF00FF00FF000000FF00FF; // [3]
+    XMMData Cx00FF00FF000000FF00FF00FF000000FF; // [4]
+    XMMData Cx00FF00FF00FF000000FF00FF00FF0000; // [5]
+
+    XMMData Cx00FF00000000000000FF000000000000; // [6]
+    XMMData Cx000000FF00000000000000FF00000000; // [7]
+    XMMData Cx0000000000FF00000000000000FF0000; // [8]
+    XMMData Cx00000000000000FF00000000000000FF; // [9]
+    
     XMMData CxDemultiply[256];
   };
 
@@ -181,6 +195,8 @@ struct Generator
   UInt32 optimize;
   //! @brief Tells generator if it should use data prefetching.
   UInt32 prefetch;
+  //! @brief Tells generator to use non-thermal hint for store (movntq, movntdq, movntdqa, ...)
+  UInt32 nonThermalHint;
   //! @brief Cpu features, see @c AsmJit::CpuInfo::Feature enumeration.
   UInt32 features;
   //! @brief Function body flags.
