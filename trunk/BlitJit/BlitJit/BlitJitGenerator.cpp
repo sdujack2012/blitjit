@@ -1,4 +1,4 @@
-// BlitJit - Just In Time Image Blitting Library.
+// BlitJit - Just In Time Image Blitting Library for C++ Language.
 
 // Copyright (c) 2008-2009, Petr Kobalicek <kobalicek.petr@gmail.com>
 //
@@ -378,9 +378,9 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
         break;
       }
 
-      // Dca' = Sca + Dca - Sca.Dca
+      // Dca' = (Sca.Da + Dca.Sa - Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
+      //      = Sca + Dca - Sca.Dca
       // Da'  = Sa + Da - Sa.Da 
-      //      = Sa + Da.(1 - Sa)
       case Operation::CompositeScreen:
       {
         c->movdqa(t0, dst0);
@@ -550,7 +550,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
         c->psrlq(t0, 48);
         c->movd(td.r(), t1);
         c->movd(ts.r(), t0);
-        c->neg(td.r());
+        c->xor_(td.r(), 0xFF);
         c->cmp(ts.r16(), td.r16());
         c->jle(L_Skip);
 
@@ -1358,7 +1358,15 @@ void Generator::blitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
   // [Combine...]
   else
   {
-    if (optimize == OptimizeSSE2)
+    if (optimize == OptimizeX86)
+    {
+      // TODO
+    }
+    else if (optimize == OptimizeMMX)
+    {
+      // TODO
+    }
+    else if (optimize == OptimizeSSE2)
     {
       GeneratorOpComposite32_SSE2 c_op(this, c, f, op.id());
       c_op.init();
@@ -1870,10 +1878,9 @@ void Generator::_Composite32_SSE2(
 
     if (prefetch) 
     {
-      c->prefetch(ptr(src.r(), 32), PREFETCH_T0);
+      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
+      c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
     }
-    //c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-    //c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
 
     for (i = 0; i < mainLoopSize; i += 16)
     {
@@ -1881,17 +1888,6 @@ void Generator::_Composite32_SSE2(
 
       c->movdqu(srcpix0, ptr(src.r(), i + 0));
 
-/*
-      // This can skip compositing of pixels with zero alpha
-      if (c_op.op == Operation::CompositeOver)
-      {
-        c->pxor(srcpix1, srcpix1);
-        c->pcmpeqb(srcpix1, srcpix0);
-        c->pmovmskb(t.r32(), srcpix1);
-        c->cmp(t.r32(), 0xFFFF);
-        c->jz(L_LocalLoopExit);
-      }
-*/
       // This can improve speed by skipping pixels of zero or full alpha
       if (c_op.op == Operation::CompositeOver)
       {

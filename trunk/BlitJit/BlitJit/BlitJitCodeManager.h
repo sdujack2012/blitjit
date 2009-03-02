@@ -23,7 +23,60 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 // OTHER DEALINGS IN THE SOFTWARE.
 
-// [Dependencies]
-#include "BlitJitLock.h"
+// [Guard]
+#ifndef _BLITJITCODEMANAGER_H
+#define _BLITJITCODEMANAGER_H
 
-// no code
+// [Dependencies]
+#include "BlitJitConfig.h"
+#include "BlitJitDefs.h"
+#include "BlitJitGenerator.h"
+#include "BlitJitLock.h"
+#include "BlitJitMemoryManager.h"
+
+namespace BlitJit {
+
+//! @addtogroup BlitJit_Main
+//! @{
+
+struct CodeManager
+{
+  CodeManager();
+  ~CodeManager();
+
+  FillSpanFn getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId);
+  BlitSpanFn getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId);
+
+  FillRectFn getFillRect(UInt32 dId, UInt32 sId, UInt32 oId);
+  BlitRectFn getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId);
+
+  // Functions
+  enum
+  {
+    FillSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
+    BlitSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
+
+    FillRectFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
+    BlitRectFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count 
+  };
+
+  // Cache
+  FillSpanFn _fillSpan[FillSpanFnCount];
+  BlitSpanFn _blitSpan[BlitSpanFnCount];
+
+  FillRectFn _fillRect[FillSpanFnCount];
+  BlitRectFn _blitRect[BlitRectFnCount];
+
+  // Memory manager
+  MemoryManager _memmgr;
+
+  // Lock
+  Lock _lock;
+};
+
+//! @}
+
+} // BlitJit namespace
+
+// [Guard]
+#endif // _BLITJITCODEMANAGER_H

@@ -1,9 +1,23 @@
-BlitJit - Blit JIT Graphics Library
-===================================
+BlitJit - Just In Time Image Blitting Library for C++ Language
+==============================================================
 
 http://code.google.com/p/blitjit/
 
-BlitJit is library designed to maximize speed of blit functions.
+BlitJit is high performance low level image blitting library for C++ language
+designed to take power of jit compilation. It's designed for embedding in 
+graphics libraries with higher level API, but it's possible to use it directly
+without any other wrappers. BlitJit supports several pixel formats and 
+compositing operations and can compile (just in time) functions for them. 
+Currently BlitJit is crossplatform, but host processor must be x86 or x64 
+compatible (64 bit mode is of course supported).
+
+BlitJit library should be used to maximize speed of graphics operations. Each
+higher level library needs low level pixel manipulation functions that can
+affect overall library performance. Because BlitJit compiles everything in
+runtime (just in time) it can compile functions that are best for current
+processor.
+
+For just in time compilation is used AsmJit library.
 
 Examples
 ========
