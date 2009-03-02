@@ -57,6 +57,13 @@ const Operation Api::operations[Operation::Count] =
   { "CompositeAdd"        , Operation::CompositeAdd        , true , true , true , true   },
   { "CompositeSubtract"   , Operation::CompositeSubtract   , true , true , true , true   },
   { "CompositeMultiply"   , Operation::CompositeMultiply   , true , true , true , true   },
+  { "CompositeScreen"     , Operation::CompositeScreen     , true , true , true , true   },
+  { "CompositeDarken"     , Operation::CompositeDarken     , true , true , true , true   },
+  { "CompositeLighten"    , Operation::CompositeLighten    , true , true , true , true   },
+  { "CompositeDifference" , Operation::CompositeDifference , true , true , true , true   },
+  { "CompositeExclusion"  , Operation::CompositeExclusion  , true , true , true , true   },
+  { "CompositeInvert"     , Operation::CompositeInvert     , true , true , true , true   },
+  { "CompositeInvertRgb"  , Operation::CompositeInvertRgb  , true , true , true , true   },
   { "CompositeSaturate"   , Operation::CompositeSaturate   , true , true , true , true   }
 };
 

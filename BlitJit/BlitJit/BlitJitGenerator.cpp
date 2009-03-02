@@ -30,10 +30,6 @@
 #include <AsmJit/AsmJitCompiler.h>
 #include <AsmJit/AsmJitCpuInfo.h>
 
-#if 0 && defined(ASMJIT_X64)
-#define UNROLL_8
-#endif // ASMJIT_X64
-
 using namespace AsmJit;
 
 namespace BlitJit {
@@ -72,12 +68,20 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
   // [Construction / Destruction]
   // --------------------------------------------------------------------------
 
-  GeneratorOpComposite32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), unroll(1)
+  GeneratorOpComposite32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), maxPixelsInLoop(0)
   {
-    unroll = 1;
-    unpackUsingZ = 1;
+    maxPixelsInLoop = 4;
 
-    if (op == Operation::CompositeSaturate) unroll = 0;
+    if (op == Operation::CompositeSubtract  ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeMultiply  ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeScreen    ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeDarken    ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeLighten   ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeDifference) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeExclusion ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeInvert    ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeInvertRgb ) maxPixelsInLoop = 2;
+    if (op == Operation::CompositeSaturate  ) maxPixelsInLoop = 1;
   }
 
   virtual ~GeneratorOpComposite32_SSE2() {}
@@ -146,14 +150,8 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
         break;
     }
 
-    c->punpcklbw(src0, unpackUsingZ ? z.r() : src0);
-    c->punpcklbw(dst0, unpackUsingZ ? z.r() : dst0);
-
-    if (!unpackUsingZ)
-    {
-      c->psrlw(src0, 8);
-      c->psrlw(dst0, 8);
-    }
+    c->punpcklbw(src0, z.r());
+    c->punpcklbw(dst0, z.r());
 
     doPixelUnpacked(dst0, src0, two);
     c->packuswb(dst0, dst0);
@@ -169,32 +167,24 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
 
     if (flags & Raw4UnpackFromSrc0)
     {
-      c->punpcklbw(src0, unpackUsingZ ? z.r() : src0);
-      c->punpckhbw(src1, unpackUsingZ ? z.r() : src1);
+      c->punpcklbw(src0, z.r());
+      c->punpckhbw(src1, z.r());
     }
     else
     {
-      c->punpcklbw(src0, unpackUsingZ ? z.r() : src0);
-      c->punpcklbw(src1, unpackUsingZ ? z.r() : src1);
+      c->punpcklbw(src0, z.r());
+      c->punpcklbw(src1, z.r());
     }
 
     if (flags & Raw4UnpackFromDst0)
     {
-      c->punpcklbw(dst0, unpackUsingZ ? z.r() : dst0);
-      c->punpckhbw(dst1, unpackUsingZ ? z.r() : dst1);
+      c->punpcklbw(dst0, z.r());
+      c->punpckhbw(dst1, z.r());
     }
     else
     {
-      c->punpcklbw(dst0, unpackUsingZ ? z.r() : dst0);
-      c->punpcklbw(dst1, unpackUsingZ ? z.r() : dst1);
-    }
-
-    if (!unpackUsingZ)
-    {
-      c->psrlw(src0, 8);
-      c->psrlw(src1, 8);
-      c->psrlw(dst0, 8);
-      c->psrlw(dst1, 8);
+      c->punpcklbw(dst0, z.r());
+      c->punpcklbw(dst1, z.r());
     }
 
     doPixelUnpacked_4(dst0, src0, dst1, src1);
@@ -209,99 +199,6 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
       c->packuswb(dst1, dst1);
     }
   }
-
-#if defined(ASMJIT_X64)
-  void doPixelRaw_8(
-    const XMMRegister& dst0, const XMMRegister& src0,
-    const XMMRegister& dst1, const XMMRegister& src1,
-    const XMMRegister& dst2, const XMMRegister& src2,
-    const XMMRegister& dst3, const XMMRegister& src3,
-    UInt32 flags)
-  {
-    if (flags & Raw4UnpackFromSrc0) c->movdqa(src1, src0);
-    if (flags & Raw4UnpackFromSrc2) c->movdqa(src3, src2);
-    if (flags & Raw4UnpackFromDst0) c->movdqa(dst1, dst0);
-    if (flags & Raw4UnpackFromDst2) c->movdqa(dst3, dst2);
-
-    if (flags & Raw4UnpackFromSrc0)
-    {
-      c->punpcklbw(src0, unpackUsingZ ? z.r() : src0);
-      c->punpckhbw(src1, unpackUsingZ ? z.r() : src1);
-    }
-    else
-    {
-      c->punpcklbw(src0, unpackUsingZ ? z.r() : src0);
-      c->punpcklbw(src1, unpackUsingZ ? z.r() : src1);
-    }
-
-    if (flags & Raw4UnpackFromSrc2)
-    {
-      c->punpcklbw(src2, unpackUsingZ ? z.r() : src2);
-      c->punpckhbw(src3, unpackUsingZ ? z.r() : src3);
-    }
-    else
-    {
-      c->punpcklbw(src2, unpackUsingZ ? z.r() : src2);
-      c->punpcklbw(src3, unpackUsingZ ? z.r() : src3);
-    }
-
-    if (flags & Raw4UnpackFromDst0)
-    {
-      c->punpcklbw(dst0, unpackUsingZ ? z.r() : dst0);
-      c->punpckhbw(dst1, unpackUsingZ ? z.r() : dst1);
-    }
-    else
-    {
-      c->punpcklbw(dst0, unpackUsingZ ? z.r() : dst0);
-      c->punpcklbw(dst1, unpackUsingZ ? z.r() : dst1);
-    }
-
-    if (flags & Raw4UnpackFromDst2)
-    {
-      c->punpcklbw(dst2, unpackUsingZ ? z.r() : dst2);
-      c->punpckhbw(dst3, unpackUsingZ ? z.r() : dst3);
-    }
-    else
-    {
-      c->punpcklbw(dst2, unpackUsingZ ? z.r() : dst2);
-      c->punpcklbw(dst3, unpackUsingZ ? z.r() : dst3);
-    }
-
-    if (!unpackUsingZ)
-    {
-      c->psrlw(src0, 8);
-      c->psrlw(src1, 8);
-      c->psrlw(src2, 8);
-      c->psrlw(src3, 8);
-      c->psrlw(dst0, 8);
-      c->psrlw(dst1, 8);
-      c->psrlw(dst2, 8);
-      c->psrlw(dst3, 8);
-    }
-
-    doPixelUnpacked_8(dst0, src0, dst1, src1, dst2, src2, dst3, src3);
-
-    if (flags & Raw4PackToDst0)
-    {
-      c->packuswb(dst0, dst1);
-    }
-    else
-    {
-      c->packuswb(dst0, dst0);
-      c->packuswb(dst1, dst1);
-    }
-
-    if (flags & Raw4PackToDst2)
-    {
-      c->packuswb(dst2, dst3);
-    }
-    else
-    {
-      c->packuswb(dst2, dst2);
-      c->packuswb(dst3, dst3);
-    }
-  }
-#endif // ASMJIT_X64
 
   // --------------------------------------------------------------------------
   // [doPixelUnpacked]
@@ -318,67 +215,329 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
 
     switch (op)
     {
+      // Dca' = Sca
+      // Da'  = Sa
       case Operation::CompositeSrc:
+      {
         // copy operation (optimized in frontends and also by Generator itself)
         c->movdqa(dst0, src0);
         break;
+      }
+
+      // Dca' = Dca
+      // Da'  = Da
       case Operation::CompositeDest:
+      {
         // no operation (optimized in frontends and also by Generator itself)
         break;
+      }
+
+      // Dca' = Sca + Dca.(1 - Sa)
+      // Da'  = Sa + Da.(1 - Sa)
+      //      = Sa + Da - Sa.Da
       case Operation::CompositeOver:
+      {
         doExtractAlpha(t0, src0, 3, true, two);
         doPackedMultiply(dst0, t0, t0);
         c->paddusb(dst0, src0);
         break;
+      }
+
+      // Dca' = Dca + Sca.(1 - Da)
+      // Da'  = Da + Sa.(1 - Da)
+      //      = Da + Sa - Da.Sa
       case Operation::CompositeOverReverse:
+      {
         doExtractAlpha(t0, dst0, 3, true, two);
         doPackedMultiply(src0, t0, t0);
         c->paddusb(dst0, src0);
         break;
+      }
+
+      // Dca' = Sca.Da
+      // Da'  = Sa.Da 
       case Operation::CompositeIn:
+      {
         doExtractAlpha(t0, dst0, 3, false, two);
         doPackedMultiply(src0, t0, dst0, true);
         break;
+      }
+
+      // Dca' = Dca.Sa
+      // Da'  = Da.Sa
       case Operation::CompositeInReverse:
+      {
         doExtractAlpha(t0, src0, 3, false, two);
         doPackedMultiply(dst0, t0, t0);
         break;
+      }
+
+      // Dca' = Sca.(1 - Da)
+      // Da'  = Sa.(1 - Da) 
       case Operation::CompositeOut:
+      {
         doExtractAlpha(t0, dst0, 3, true, two);
         doPackedMultiply(src0, t0, dst0, true);
         break;
+      }
+
+      // Dca' = Dca.(1 - Sa) 
+      // Da'  = Da.(1 - Sa) 
       case Operation::CompositeOutReverse:
+      {
         doExtractAlpha(t0, src0, 3, true, two);
         doPackedMultiply(dst0, t0, t0);
         break;
+      }
+
+      // Dca' = Sca.Da + Dca.(1 - Sa)
+      // Da'  = Sa.Da + Da.(1 - Sa)
+      //      = Da.(Sa + 1 - Sa)
+      //      = Da
       case Operation::CompositeAtop:
+      {
         doExtractAlpha(t0, src0, 3, true, two);
         doExtractAlpha(t1, dst0, 3, false, two);
         doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
         break;
+      }
+
+      // Dca' = Dca.Sa + Sca.(1 - Da)
+      // Da'  = Da.Sa + Sa.(1 - Da)
+      //      = Sa.(Da + 1 - Da)
+      //      = Sa 
       case Operation::CompositeAtopReverse:
+      {
         doExtractAlpha(t0, src0, 3, false, two);
         doExtractAlpha(t1, dst0, 3, true, two);
         doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
         break;
+      }
+
+      // Dca' = Sca.(1 - Da) + Dca.(1 - Sa)
+      // Da'  = Sa.(1 - Da) + Da.(1 - Sa)
+      //      = Sa + Da - 2.Sa.Da 
       case Operation::CompositeXor:
+      {
         doExtractAlpha(t0, src0, 3, true, two);
         doExtractAlpha(t1, dst0, 3, true, two);
-        doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+        doPackedMultiplyAdd(
+          src0, t1, 
+          dst0, t0, 
+          dst0, true);
         break;
+      }
+
+      // Dca' = 0
+      // Da'  = 0
       case Operation::CompositeClear:
+      {
         // clear operation (optimized in frontends and also by Generator itself)
         c->pxor(dst0, dst0);
         break;
+      }
+
+      // Dca' = Sca + Dca
+      // Da'  = Sa + Da 
       case Operation::CompositeAdd:
+      {
         c->paddusb(dst0, src0);
         break;
+      }
+
+      // Dca' = Dca - Sca
+      // Da'  = 1 - (1 - Sa).(1 - Da)
       case Operation::CompositeSubtract:
+      {
+        doExtractAlpha(t0, src0, 3, true, two);
+        doExtractAlpha(t1, dst0, 3, true, two);
+        doPackedMultiply(t0, t1, t1);
         c->psubusb(dst0, src0);
+        c->por(dst0, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00000000000000FF000000000000)));
+        c->pand(t0, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00000000000000FF000000000000)));
+        c->psubusb(dst0, t0);
         break;
+      }
+
+      // Dca' = Sca.Dca + Sca.(1 - Da) + Dca.(1 - Sa)
+      // Da'  = Sa.Da + Sa.(1 - Da) + Da.(1 - Sa)
+      //      = Sa + Da - Sa.Da 
       case Operation::CompositeMultiply:
-        doPackedMultiply(dst0, src0, t1);
+      {
+        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRegister t2 = _t2.r();
+
+        c->movdqa(t2, dst0);
+        doPackedMultiply(t2, dst0, t0);
+
+        doExtractAlpha(t0, src0, 3, true, two); // t0 == 1-alpha from src0
+        doExtractAlpha(t1, dst0, 3, true, two); // t1 == 1-alpha from dst0
+
+        doPackedMultiplyAdd(dst0, t0, src0, t1, t0);
+        c->paddusw(dst0, t2);
         break;
+      }
+
+      // Dca' = Sca + Dca - Sca.Dca
+      // Da'  = Sa + Da - Sa.Da 
+      //      = Sa + Da.(1 - Sa)
+      case Operation::CompositeScreen:
+      {
+        c->movdqa(t0, dst0);
+        c->paddusw(dst0, src0);
+        doPackedMultiply(t0, src0, t1);
+        c->psubusw(dst0, t0);
+        break;
+      }
+
+      // Dca' = min(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
+      // Da'  = min(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
+      //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
+      //      = Sa + Da - Sa.Da 
+      case Operation::CompositeDarken:
+
+      // Dca' = max(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
+      // Da'  = max(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
+      //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
+      //      = Sa + Da - Sa.Da 
+      case Operation::CompositeLighten:
+      {
+        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+
+        XMMRegister t2 = _t2.r();
+        XMMRegister t3 = _t3.r();
+
+        doExtractAlpha_4(
+          t0, src0, 3, false,
+          t1, dst0, 3, false);
+        doPackedMultiply_4(
+          t0, dst0, t2,
+          t1, src0, t3, true);
+
+        if (op == Operation::CompositeDarken)
+          c->pminsw(t3, t2);
+        else
+          c->pmaxsw(t3, t2);
+
+        doExtractAlpha_4(
+          t0, src0, 3, true,
+          t1, dst0, 3, true);
+        doPackedMultiplyAdd(
+          dst0, t0,
+          src0, t1, t2);
+        c->paddusw(dst0, t3);
+        break;
+      }
+
+      // Dca' = Sca + Dca - 2.min(Sca.Da, Dca.Sa)
+      // Da'  = Sa + Da - min(Sa.Da, Da.Sa)
+      //      = Sa + Da - Sa.Da
+      case Operation::CompositeDifference:
+      {
+        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+
+        XMMRegister t2 = _t2.r();
+        XMMRegister t3 = _t3.r();
+
+        doExtractAlpha_4(
+          t0, src0, 3, false,
+          t1, dst0, 3, false);
+        doPackedMultiply_4(
+          t0, dst0, t2,
+          t1, src0, t3);
+        c->pminsw(t0, t1);
+        c->paddusw(dst0, src0);
+        c->psubusw(dst0, t0);
+        c->pand(t0, ptr(g->rconst.r(), RCONST_DISP(Cx000000FF00FF00FF000000FF00FF00FF)));
+        c->psubusw(dst0, t0);
+        break;
+      }
+
+      // Dca' = (Sca.Da + Dca.Sa - 2.Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
+      // Dca' = Sca + Dca - 2.Sca.Dca
+      //      
+      // Da'  = (Sa.Da + Da.Sa - 2.Sa.Da) + Sa.(1 - Da) + Da.(1 - Sa)
+      //      = Sa - Sa.Da + Da - Da.Sa = Sa + Da - 2.Sa.Da
+      // Substitute 2.Sa.Da with Sa.Da
+      //
+      // Da'  = Sa + Da - Sa.Da 
+      case Operation::CompositeExclusion:
+      {
+        c->movdqa(t0, src0);
+        doPackedMultiply(t0, dst0, t1);
+        c->paddusw(dst0, src0);
+        c->psubusw(dst0, t0);
+        c->pand(t0, ptr(g->rconst.r(), RCONST_DISP(Cx000000FF00FF00FF000000FF00FF00FF)));
+        c->psubusw(dst0, t0);
+        break;
+      }
+
+      // Dca' = (Da - Dca) * Sa + Dca.(1 - Sa)
+      // Da'  = Sa + (Da - Da) * Sa + Da - Sa.Da
+      //      = Sa + Da - Sa.Da
+      case Operation::CompositeInvert:
+      {
+        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+
+        XMMRegister t2 = _t2.r();
+        XMMRegister t3 = _t3.r();
+
+        doExtractAlpha_4(
+          t0, src0, 3, false,  // Sa
+          t2, dst0, 3, false); // Da
+
+        c->movdqa(t1, t0);
+        c->psubusb(t2, dst0);
+        c->pxor(t1, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
+
+        // t1 = 1 - Sa
+        // t2 = Da - Dca
+
+        doPackedMultiply_4(
+          t2, t0, t3,     // t2   = Sa.(Da - Dca)
+          dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
+
+        c->pand(t0, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00000000000000FF000000000000)));
+        c->paddusb(dst0, t2);
+        c->paddusb(dst0, t0);
+        break;
+      }
+
+      // Dca' = (Da - Dca) * Sca + Dca.(1 - Sa)
+      // Da'  = Sa + (Da - Da) * Sa + Da - Da.Sa
+      //      = Sa + Da - Da.Sa
+      case Operation::CompositeInvertRgb:
+      {
+        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+
+        XMMRegister t2 = _t2.r();
+        XMMRegister t3 = _t3.r();
+
+        doExtractAlpha_4(
+          t0, src0, 3, false,  // Sa
+          t2, dst0, 3, false); // Da
+
+        c->movdqa(t1, t0);
+        c->psubw(t2, dst0);
+        c->pxor(t1, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
+
+        // t1 = 1 - Sa
+        // t2 = Da - Dca
+
+        doPackedMultiply_4(
+          t2, src0, t3,   // t2   = Sca.(Da - Dca)
+          dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
+
+        c->pand(t0, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00000000000000FF000000000000)));
+        c->paddusb(dst0, t2);
+        c->paddusb(dst0, t0);
+        break;
+      }
+
       case Operation::CompositeSaturate:
       {
         Label* L_Skip = c->newLabel();
@@ -527,227 +686,26 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
         c->paddusb(dst1, src1);
         break;
       case Operation::CompositeSubtract:
+        // TODO
         c->psubusb(dst0, src0);
         c->psubusb(dst1, src1);
         break;
       case Operation::CompositeMultiply:
+        // TODO
         doPackedMultiply_4(
           dst0, src0, t0,
           dst1, src1, t1);
         break;
+      case Operation::CompositeScreen:
+      case Operation::CompositeDarken:
+      case Operation::CompositeLighten:
       case Operation::CompositeSaturate:
       {
-        ASMJIT_ASSERT(0);
+        BLITJIT_ASSERT(0);
         break;
       }
     }
   }
-
-#if defined(ASMJIT_X64)
-  void doPixelUnpacked_8(
-    const XMMRegister& dst0, const XMMRegister& src0,
-    const XMMRegister& dst1, const XMMRegister& src1,
-    const XMMRegister& dst2, const XMMRegister& src2,
-    const XMMRegister& dst3, const XMMRegister& src3)
-  {
-    XMMRef _t0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _t1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _t2 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _t3 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-    XMMRegister t0 = _t0.r();
-    XMMRegister t1 = _t1.r();
-    XMMRegister t2 = _t2.r();
-    XMMRegister t3 = _t3.r();
-
-    switch (op)
-    {
-      case Operation::CompositeSrc:
-        // copy operation (optimized in frontends and also by Generator itself)
-        c->movdqa(dst0, src0);
-        c->movdqa(dst1, src1);
-        c->movdqa(dst2, src2);
-        c->movdqa(dst3, src3);
-        break;
-      case Operation::CompositeDest:
-        // no operation (optimized in frontends and also by Generator itself)
-        break;
-      case Operation::CompositeOver:
-        doExtractAlpha_8(
-          t0, src0, 3, true,
-          t1, src1, 3, true,
-          t2, src2, 3, true,
-          t3, src3, 3, true);
-        doPackedMultiply_8(
-          dst0, t0, t0,
-          dst1, t1, t1,
-          dst2, t2, t2,
-          dst3, t3, t3);
-        c->paddusb(dst0, src0);
-        c->paddusb(dst1, src1);
-        c->paddusb(dst2, src2);
-        c->paddusb(dst3, src3);
-        break;
-      case Operation::CompositeOverReverse:
-        doExtractAlpha_8(
-          t0, dst0, 3, true,
-          t1, dst1, 3, true,
-          t2, dst2, 3, true,
-          t3, dst3, 3, true);
-        doPackedMultiply_8(
-          src0, t0, t0,
-          src1, t1, t1,
-          src2, t2, t2,
-          src3, t3, t3);
-        c->paddusb(dst0, src0);
-        c->paddusb(dst1, src1);
-        c->paddusb(dst2, src2);
-        c->paddusb(dst3, src3);
-        break;
-      case Operation::CompositeIn:
-        doExtractAlpha_8(
-          t0, dst0, 3, false,
-          t1, dst1, 3, false,
-          t2, dst2, 3, false,
-          t3, dst3, 3, false);
-        doPackedMultiply_8(
-          src0, t0, dst0,
-          src1, t1, dst1,
-          src2, t2, dst2,
-          src3, t3, dst3,
-          true);
-        break;
-      case Operation::CompositeInReverse:
-        doExtractAlpha_8(
-          t0, src0, 3, false,
-          t1, src1, 3, false,
-          t2, src2, 3, false,
-          t3, src3, 3, false);
-        doPackedMultiply_8(
-          dst0, t0, t0,
-          dst1, t1, t1,
-          dst2, t2, t2,
-          dst3, t3, t3);
-        break;
-      case Operation::CompositeOut:
-        doExtractAlpha_8(
-          t0, dst0, 3, true,
-          t1, dst1, 3, true,
-          t2, dst2, 3, true,
-          t3, dst3, 3, true);
-        doPackedMultiply_8(
-          src0, t0, dst0,
-          src1, t1, dst1,
-          src2, t2, dst2,
-          src3, t3, dst3,
-          true);
-        break;
-      case Operation::CompositeOutReverse:
-        doExtractAlpha_8(
-          t0, src0, 3, true,
-          t1, src1, 3, true,
-          t2, src2, 3, true,
-          t3, src3, 3, true);
-        doPackedMultiply_8(
-          dst0, t0, t0,
-          dst1, t1, t1,
-          dst2, t2, t2,
-          dst3, t3, t3);
-        break;
-      case Operation::CompositeAtop:
-        doExtractAlpha_8(
-          t0, src0, 3, true ,
-          t1, dst0, 3, false,
-          t2, src1, 3, true ,
-          t3, dst1, 3, false);
-        doPackedMultiplyAdd_4(
-          src0, t1, dst0, t0, dst0,
-          src1, t3, dst1, t2, dst1,
-          true);
-        doExtractAlpha_8(
-          t0, src2, 3, true ,
-          t1, dst2, 3, false,
-          t2, src3, 3, true ,
-          t3, dst3, 3, false);
-        doPackedMultiplyAdd_4(
-          src2, t1, dst2, t0, dst2,
-          src3, t3, dst3, t2, dst3,
-          true);
-        break;
-      case Operation::CompositeAtopReverse:
-        doExtractAlpha_8(
-          t0, src0, 3, false,
-          t1, dst0, 3, true ,
-          t2, src1, 3, false,
-          t3, dst1, 3, true );
-        doPackedMultiplyAdd_4(
-          src0, t1, dst0, t0, dst0,
-          src1, t3, dst1, t2, dst1,
-          true);
-        doExtractAlpha_8(
-          t0, src2, 3, false,
-          t1, dst2, 3, true ,
-          t2, src3, 3, false,
-          t3, dst3, 3, true );
-        doPackedMultiplyAdd_4(
-          src2, t1, dst2, t0, dst2,
-          src3, t3, dst3, t2, dst3,
-          true);
-        break;
-      case Operation::CompositeXor:
-        doExtractAlpha_8(
-          t0, src0, 3, true,
-          t1, dst0, 3, true,
-          t2, src1, 3, true,
-          t3, dst1, 3, true);
-        doPackedMultiplyAdd_4(
-          src0, t1, dst0, t0, dst0,
-          src1, t3, dst1, t2, dst1,
-          true);
-        doExtractAlpha_8(
-          t0, src2, 3, true,
-          t1, dst2, 3, true,
-          t2, src3, 3, true,
-          t3, dst3, 3, true);
-        doPackedMultiplyAdd_4(
-          src2, t1, dst2, t0, dst2,
-          src3, t3, dst3, t2, dst3,
-          true);
-        break;
-      case Operation::CompositeClear:
-        // clear operation (optimized in frontends and also by Generator itself)
-        c->pxor(dst0, dst0);
-        c->pxor(dst1, dst1);
-        c->pxor(dst2, dst2);
-        c->pxor(dst3, dst3);
-        break;
-      case Operation::CompositeAdd:
-        c->paddusb(dst0, src0);
-        c->paddusb(dst1, src1);
-        c->paddusb(dst2, src2);
-        c->paddusb(dst3, src3);
-        break;
-      case Operation::CompositeSubtract:
-        c->psubusb(dst0, src0);
-        c->psubusb(dst1, src1);
-        c->psubusb(dst2, src2);
-        c->psubusb(dst3, src3);
-        break;
-      case Operation::CompositeMultiply:
-        doPackedMultiply_8(
-          dst0, src0, t0,
-          dst1, src1, t1,
-          dst2, src2, t2,
-          dst3, src3, t3);
-        break;
-      case Operation::CompositeSaturate:
-      {
-        ASMJIT_ASSERT(0);
-        break;
-      }
-    }
-  }
-#endif // ASMJIT_X64
 
   // --------------------------------------------------------------------------
   // [Helpers]
@@ -783,30 +741,10 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     if (negate1) c->pxor(dst1, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
   }
 
-#if defined(ASMJIT_X64)
-  void doExtractAlpha_8(
-    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0,
-    const XMMRegister& dst1, const XMMRegister& src1, UInt8 alphaPos1, UInt8 negate1,
-    const XMMRegister& dst2, const XMMRegister& src2, UInt8 alphaPos2, UInt8 negate2,
-    const XMMRegister& dst3, const XMMRegister& src3, UInt8 alphaPos3, UInt8 negate3)
-  {
-    c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-    c->pshuflw(dst1, src1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
-    c->pshuflw(dst2, src2, mm_shuffle(alphaPos2, alphaPos2, alphaPos2, alphaPos2));
-    c->pshuflw(dst3, src3, mm_shuffle(alphaPos3, alphaPos3, alphaPos3, alphaPos3));
-
-    c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-    c->pshufhw(dst1, dst1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
-    c->pshufhw(dst2, dst2, mm_shuffle(alphaPos2, alphaPos2, alphaPos2, alphaPos2));
-    c->pshufhw(dst3, dst3, mm_shuffle(alphaPos3, alphaPos3, alphaPos3, alphaPos3));
-
-    if (negate0) c->pxor(dst0, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
-    if (negate1) c->pxor(dst1, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
-    if (negate2) c->pxor(dst2, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
-    if (negate3) c->pxor(dst3, ptr(g->rconst.r(), RCONST_DISP(Cx00FF00FF00FF00FF00FF00FF00FF00FF)));
-  }
-#endif // ASMJIT_X64
-
+  // moveToT0 false:
+  //   a0 = (a0 * b0) / 255, t0 is destroyed.
+  // moveToT0 true:
+  //   t0 = (a0 * b0) / 255, a0 is destroyed.
   void doPackedMultiply(
     const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
     bool moveToT0 = false)
@@ -829,6 +767,28 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     }
   }
 
+  void doPackedMultiplyWithAddition(
+    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0)
+  {
+    XMMRegister r = c0x0080.r();
+
+    c->movdqa(t0, a0);
+    c->pmullw(a0, b0);          // a0 *= b0
+    c->paddusw(a0, r);          // a0 += 80
+    c->paddusw(b0, t0);
+    c->movdqa(t0, a0);          // t0  = a0
+    c->psrlw(a0, 8);            // a0 /= 256
+    c->paddusw(a0, t0);         // a0 += t0
+    c->psrlw(a0, 8);            // a0 /= 256
+    c->paddusw(a0, b0);
+  }
+
+  // moveToT0T1 false: 
+  //   a0 = (a0 * b0) / 255, t0 is destroyed.
+  //   a1 = (a1 * b1) / 255, t1 is destroyed.
+  // moveToT0T1 true: 
+  //   t0 = (a0 * b0) / 255, a0 is destroyed.
+  //   t1 = (a1 * b1) / 255, a1 is destroyed.
   void doPackedMultiply_4(
     const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
     const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1,
@@ -841,9 +801,9 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     {
       c->pmullw(a0, b0);          // a0 *= b0
       c->pmullw(a1, b1);          // a1 *= b1
-/*
-      Low quality div
 
+/*
+      // Low quality div
       c->psrlw(a0, 8);            // a0 /= 256
       c->psrlw(a1, 8);            // a1 /= 256
       if (moveToT0T1)
@@ -906,67 +866,14 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     }
   }
 
-#if defined(ASMJIT_X64)
-  void doPackedMultiply_8(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
-    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1,
-    const XMMRegister& a2, const XMMRegister& b2, const XMMRegister& t2,
-    const XMMRegister& a3, const XMMRegister& b3, const XMMRegister& t3,
-    bool moveToT0T1T2T3 = false)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->pmullw(a1, b1);          // a1 *= b1
-    c->pmullw(a2, b2);          // a2 *= b2
-    c->pmullw(a3, b3);          // a3 *= b3
-
-    c->paddusw(a0, r);          // a0 += 80
-    c->paddusw(a1, r);          // a1 += 80
-    c->paddusw(a2, r);          // a2 += 80
-    c->paddusw(a3, r);          // a3 += 80
-
-    c->movdqa(t0, a0);          // t0  = a0
-    c->movdqa(t1, a1);          // t1  = a1
-    c->movdqa(t2, a2);          // t2  = a2
-    c->movdqa(t3, a3);          // t3  = a3
-
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->psrlw(a1, 8);            // a1 /= 256
-    c->psrlw(a2, 8);            // a2 /= 256
-    c->psrlw(a3, 8);            // a3 /= 256
-
-    if (moveToT0T1T2T3)
-    {
-      c->paddusw(t0, a0);       // t0 += a0
-      c->paddusw(t1, a1);       // t1 += a1
-      c->paddusw(t2, a2);       // t2 += a2
-      c->paddusw(t3, a3);       // t3 += a3
-
-      c->psrlw(t0, 8);          // t0 /= 256
-      c->psrlw(t1, 8);          // t1 /= 256
-      c->psrlw(t2, 8);          // t2 /= 256
-      c->psrlw(t3, 8);          // t3 /= 256
-    }
-    else
-    {
-      c->paddusw(a0, t0);       // a0 += t0
-      c->paddusw(a1, t1);       // a1 += t1
-      c->paddusw(a2, t2);       // a2 += t2
-      c->paddusw(a3, t3);       // a3 += t3
-
-      c->psrlw(a0, 8);          // a0 /= 256
-      c->psrlw(a1, 8);          // a1 /= 256
-      c->psrlw(a2, 8);          // a2 /= 256
-      c->psrlw(a3, 8);          // a3 /= 256
-    }
-  }
-#endif // ASMJIT_X64
-
+  // moveToT0 false:
+  //   a0 = (a0 * b0 + c0 * d0) / 255, c0 and t0 are destroyed
+  // moveToT0 true:
+  //   t0 = (a0 * b0 + c0 * d0) / 255, a0 and c0 are destroyed
   void doPackedMultiplyAdd(
     const XMMRegister& a0, const XMMRegister& b0,
     const XMMRegister& c0, const XMMRegister& d0,
-    const XMMRegister& t0, bool moveToT0)
+    const XMMRegister& t0, bool moveToT0 = false)
   {
     XMMRegister r = c0x0080.r();
 
@@ -1038,8 +945,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
   // --------------------------------------------------------------------------
 
   UInt32 op;
-  UInt32 unroll;
-  UInt32 unpackUsingZ;
+  UInt32 maxPixelsInLoop;
 
   XMMRef z;
   XMMRef c0x0080;
@@ -1130,7 +1036,7 @@ Generator::Generator(Compiler* c) :
   c(c),
   f(NULL),
   optimize(OptimizeX86),
-  prefetch(0),
+  prefetch(1),
   features(cpuInfo()->features),
   body(0)
 {
@@ -1361,7 +1267,7 @@ void Generator::fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, con
   else
   {
     // We can optimize simple fills much more than compositing operations.
-    // Simple fill should be unrolled loop for 32 or more bytes at a time.
+    // Simple fill should be maxPixelsInLooped loop for 32 or more bytes at a time.
     if (pfDst.depth() == 32 && op.id() == Operation::CombineCopy)
     {
       x86MemSet32(dst, src, cnt);
@@ -1565,7 +1471,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
 
     c->mov(pix.r(), dword_ptr(src.r()));
     c->add(src.r(), 4);
-    c->mov(dword_ptr(dst.r()), pix.r());
+    stream_mov(dword_ptr(dst.r()), pix.r());
     c->add(dst.r(), 4);
 
     c->dec(cnt.r());
@@ -1596,7 +1502,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     Label* L_TailEnd = c->newLabel();
     Label* L_Exit    = c->newLabel();
 
-    Int32 mainLoopSize = 64;
+    Int32 mainLoopSize = 128;
     Int32 i;
 
     // ------------------------------------------------------------------------
@@ -1611,7 +1517,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
 
     c->mov(t.r32(), ptr(src.r()));
     c->add(src.r(), 4);
-    c->mov(ptr(dst.r()), t.r32());
+    stream_mov(ptr(dst.r()), t.r32());
     c->add(dst.r(), 4);
 
     c->bind(L_Aligned);
@@ -1623,7 +1529,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->sub(cnt.r(), mainLoopSize / 4);
     c->jc(L_Tail, HINT_NOT_TAKEN);
 
-    c->align(8);
+    c->align(16);
     c->bind(L_Loop);
 
     if (prefetch) 
@@ -1637,10 +1543,10 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
       c->movq(v1, ptr(src.r(), i +  8));
       c->movq(v2, ptr(src.r(), i + 16));
       c->movq(v3, ptr(src.r(), i + 24));
-      c->movq(ptr(dst.r(), i +  0), v0);
-      c->movq(ptr(dst.r(), i +  8), v1);
-      c->movq(ptr(dst.r(), i + 16), v2);
-      c->movq(ptr(dst.r(), i + 24), v3);
+      stream_movq(ptr(dst.r(), i +  0), v0);
+      stream_movq(ptr(dst.r(), i +  8), v1);
+      stream_movq(ptr(dst.r(), i + 16), v2);
+      stream_movq(ptr(dst.r(), i + 24), v3);
     }
 
     c->add(src.r(), mainLoopSize);
@@ -1663,7 +1569,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
 
     c->bind(L_TailLoop);
     c->movq(v0, ptr(src.r(), t.r(), 4, -8));
-    c->movq(ptr(dst.r(), t.r(), 4, -8), v0);
+    stream_movq(ptr(dst.r(), t.r(), 4, -8), v0);
 
     c->add(t.r(), 2);
     c->cmp(t.r(), cnt.r());
@@ -1677,7 +1583,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->jz(L_Exit);
 
     c->mov(t.r32(), dword_ptr(src.r(), -4));
-    c->mov(dword_ptr(dst.r(), -4), t.r32());
+    stream_mov(dword_ptr(dst.r(), -4), t.r32());
 
     c->bind(L_Exit);
   }
@@ -1705,6 +1611,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     Label* L_Tail    = c->newLabel();
     Label* L_TailLoop= c->newLabel();
     Label* L_TailEnd = c->newLabel();
+    Label* L_Loop_A  = c->newLabel();
     Label* L_Exit    = c->newLabel();
 
     Int32 mainLoopSize = 64;
@@ -1715,34 +1622,55 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     // ------------------------------------------------------------------------
 
     // For smaller size, we will use tail loop
-    c->cmp(cnt.r(), 8);
-    c->jl(L_Tail);
-
-    c->xor_(t.r(), t.r());
-    c->sub(t.r(), dst.r());
-    c->and_(t.r(), 15);
-    c->jz(L_Aligned);
-
-    c->shr(t.r(), 2);
-    c->sub(cnt.r(), t.r());
-
-    c->bind(L_Align);
-    c->movd(v0, ptr(src.r()));
-    c->movd(ptr(dst.r()), v0);
-    c->add(src.r(), 4);
-    c->add(dst.r(), 4);
-    c->dec(t.r());
-    c->jnz(L_Align, HINT_TAKEN);
+    c->cmp(cnt.r(), 16);
+    c->jl(L_Tail, HINT_NOT_TAKEN);
 
     // This shouldn't happen, but we must be sure
-    c->mov(t.r(), dst.r());
-    c->and_(t.r(), 3);
-    c->jnz(L_Tail);
+    c->mov(t.r(), 3);
+    c->and_(t.r(), dst.r());
+    c->jnz(L_Tail, HINT_NOT_TAKEN);
+
+    // Align 1
+    c->mov(t.r(), 15);
+    c->and_(t.r(), dst.r());
+    c->jz(L_Aligned);
+
+    c->mov(t.r32(), dword_ptr(src.r()));
+    c->add(src.r(), 4);
+    stream_mov(dword_ptr(dst.r()), t.r32());
+    c->add(dst.r(), 4);
+    c->dec(cnt.r());
+
+    // Align 2
+    c->mov(t.r(), 15);
+    c->and_(t.r(), dst.r());
+    c->jz(L_Aligned);
+
+    c->mov(t.r32(), dword_ptr(src.r()));
+    c->add(src.r(), 4);
+    stream_mov(dword_ptr(dst.r()), t.r32());
+    c->add(dst.r(), 4);
+    c->dec(cnt.r());
+
+    // Align 3
+    c->mov(t.r(), 15);
+    c->and_(t.r(), dst.r());
+    c->jz(L_Aligned);
+
+    c->mov(t.r32(), dword_ptr(src.r()));
+    c->add(src.r(), 4);
+    stream_mov(dword_ptr(dst.r()), t.r32());
+    c->add(dst.r(), 4);
+    c->dec(cnt.r());
 
     c->bind(L_Aligned);
 
     c->sub(cnt.r(), mainLoopSize / 4);
     c->jc(L_Tail, HINT_NOT_TAKEN);
+
+    c->mov(t.r(), 15);
+    c->and_(t.r(), src.r());
+    c->jz(L_Loop_A);
 
     // ------------------------------------------------------------------------
     // [Loop]
@@ -1762,10 +1690,11 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
       c->movdqu(v1, ptr(src.r(), i + 16));
       c->movdqu(v2, ptr(src.r(), i + 32));
       c->movdqu(v3, ptr(src.r(), i + 48));
-      c->movdqu(ptr(dst.r(), i +  0), v0);
-      c->movdqu(ptr(dst.r(), i + 16), v1);
-      c->movdqu(ptr(dst.r(), i + 32), v2);
-      c->movdqu(ptr(dst.r(), i + 48), v3);
+
+      stream_movdq(ptr(dst.r(), i +  0), v0);
+      stream_movdq(ptr(dst.r(), i + 16), v1);
+      stream_movdq(ptr(dst.r(), i + 32), v2);
+      stream_movdq(ptr(dst.r(), i + 48), v3);
     }
 
     c->add(src.r(), mainLoopSize);
@@ -1782,27 +1711,62 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->jz(L_Exit);
 
     c->bind(L_Tail);
-    c->mov(t.r(), 2);
-    c->cmp(t.r(), cnt.r());
-    c->jnle(L_TailEnd);
+    c->sub(cnt.r(), 2);
+    c->jc(L_TailEnd);
 
     c->bind(L_TailLoop);
-    c->movq(v0, ptr(src.r(), t.r(), 2, -8));
-    c->movq(ptr(dst.r(), t.r(), 2, -8), v0);
+#if defined(ASMJIT_X86)
+    c->mov(t.r32(), dword_ptr(src.r()));
+    stream_mov(dword_ptr(dst.r()), t.r32());
+    c->mov(t.r32(), dword_ptr(src.r(), 4));
+    c->add(src.r(), 8);
+    stream_mov(dword_ptr(dst.r(), 4), t.r32());
+    c->add(dst.r(), 8);
+#else
+    c->mov(t.r64(), qword_ptr(src.r()));
+    c->add(src.r(), 8);
+    stream_mov(qword_ptr(dst.r()), t.r64());
+    c->add(dst.r(), 8);
+#endif
+    c->sub(cnt.r(), 2);
+    c->jnc(L_TailLoop);
 
     c->add(t.r(), 2);
-    c->cmp(t.r(), cnt.r());
-    c->jle(L_TailLoop);
-
-    c->bind(L_TailEnd);
-    c->lea(src.r(), ptr(src.r(), cnt.r(), 2));
-    c->lea(dst.r(), ptr(dst.r(), cnt.r(), 2));
-
-    c->and_(cnt.r(), 1);
     c->jz(L_Exit);
 
-    c->mov(t.r32(), dword_ptr(src.r(), -4));
-    c->mov(dword_ptr(dst.r(), -4), t.r32());
+    c->mov(t.r32(), dword_ptr(src.r()));
+    c->add(src.r(), 4);
+    stream_mov(dword_ptr(dst.r()), t.r32());
+    c->add(dst.r(), 4);
+    c->jmp(L_Exit);
+
+    // Aligned Loop (Fastest possible)
+    c->bind(L_Loop_A);
+    if (prefetch) 
+    {
+      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
+    }
+
+    for (i = 0; i < mainLoopSize; i += 64)
+    {
+      c->movdqa(v0, ptr(src.r(), i +  0));
+      c->movdqa(v1, ptr(src.r(), i + 16));
+      c->movdqa(v2, ptr(src.r(), i + 32));
+      c->movdqa(v3, ptr(src.r(), i + 48));
+      stream_movdq(ptr(dst.r(), i +  0), v0);
+      stream_movdq(ptr(dst.r(), i + 16), v1);
+      stream_movdq(ptr(dst.r(), i + 32), v2);
+      stream_movdq(ptr(dst.r(), i + 48), v3);
+    }
+
+    c->add(src.r(), mainLoopSize);
+    c->add(dst.r(), mainLoopSize);
+
+    c->sub(cnt.r(), mainLoopSize / 4);
+    c->jnc(L_Loop_A);
+
+    c->add(cnt.r(), mainLoopSize / 4);
+    c->jnz(L_Tail);
 
     c->bind(L_Exit);
   }
@@ -1820,21 +1784,7 @@ void Generator::_Composite32_SSE2(
   XMMRef _srcpix1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
 
   XMMRegister srcpix0 = _srcpix0.r();
-  XMMRegister srcpix1 = _srcpix1.r();
   XMMRegister dstpix0 = _dstpix0.r();
-  XMMRegister dstpix1 = _dstpix1.r();
-
-#if defined(UNROLL_8)
-  XMMRef _dstpix2 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-  XMMRef _dstpix3 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-  XMMRef _srcpix2 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-  XMMRef _srcpix3 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-  XMMRegister srcpix2 = _srcpix2.r();
-  XMMRegister srcpix3 = _srcpix3.r();
-  XMMRegister dstpix2 = _dstpix2.r();
-  XMMRegister dstpix3 = _dstpix3.r();
-#endif // UNROLL_8
 
   Label* L_Align   = c->newLabel();
   Label* L_Aligned = c->newLabel();
@@ -1844,49 +1794,60 @@ void Generator::_Composite32_SSE2(
 
   Int32 mainLoopSize = 16;
 
-#if defined(UNROLL_8)
-  mainLoopSize += 16;
-#endif // UNROLL_8
-
   Int32 i;
-  UInt32 unroll = 1;
+  UInt32 maxPixelsInLoop = c_op.maxPixelsInLoop;
 
-  unroll &= c_op.unroll;
-
-  if (unroll) t.alloc();
+  if (maxPixelsInLoop) t.alloc();
 
   // ------------------------------------------------------------------------
   // [Align]
   // ------------------------------------------------------------------------
 
-  if (unroll)
+  if (maxPixelsInLoop >= 2)
   {
     // For small size, we will use tail loop
-    c->cmp(cnt.r(), 4);
-    c->jl(L_Tail);
+    if (maxPixelsInLoop >= 4)
+    {
+      c->cmp(cnt.r(), 4);
+      c->jl(L_Tail);
 
-    c->xor_(t.r(), t.r());
-    c->sub(t.r(), dst.r());
-    c->and_(t.r(), 15);
-    c->jz(L_Aligned);
+      c->xor_(t.r(), t.r());
+      c->sub(t.r(), dst.r());
+      c->and_(t.r(), 15);
+      c->jz(L_Aligned);
 
-    c->shr(t.r(), 2);
-    c->sub(cnt.r(), t.r());
+      c->shr(t.r(), 2);
+      c->sub(cnt.r(), t.r());
+    }
+    else
+    {
+      c->mov(t.r(), dst.r());
+      c->and_(t.r(), 7);
+      c->jz(L_Aligned);
+
+      c->dec(t.r());
+    }
 
     c->bind(L_Align);
+
     c->movd(srcpix0, ptr(src.r()));
     c->movd(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r()), dstpix0);
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
-    c->dec(t.r());
-    c->jnz(L_Align);
+    c_op.doPixelRaw(dstpix0, srcpix0, false);
+    c->movd(ptr(dst.r(), -4), dstpix0);
 
-    // This shouldn't happen, but we must be sure
-    c->mov(t.r(), dst.r());
-    c->and_(t.r(), 3);
-    c->jnz(L_Tail);
+    if (maxPixelsInLoop >= 4)
+    {
+      c->dec(t.r());
+      c->jnz(L_Align);
+
+      // This shouldn't happen, because we are expecting 16 byte alignment in 
+      // main loop, but we must be sure!
+      c->mov(t.r(), dst.r());
+      c->and_(t.r(), 3);
+      c->jnz(L_Tail);
+    }
 
     c->bind(L_Aligned);
   }
@@ -1895,8 +1856,11 @@ void Generator::_Composite32_SSE2(
   // [Loop]
   // ------------------------------------------------------------------------
 
-  if (unroll)
+  if (maxPixelsInLoop >= 4)
   {
+    XMMRegister dstpix1 = _dstpix1.r();
+    XMMRegister srcpix1 = _srcpix1.r();
+
     c->sub(cnt.r(), mainLoopSize / 4);
     c->jc(L_Tail);
 
@@ -1911,56 +1875,48 @@ void Generator::_Composite32_SSE2(
     //c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
     //c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
 
-#if defined(UNROLL_8)
-    for (i = 0; i < mainLoopSize; i += 32)
-    {
-      c->movq(srcpix0, ptr(src.r(), i +  0));
-      c->movq(srcpix1, ptr(src.r(), i +  8));
-      c->movq(srcpix2, ptr(src.r(), i + 16));
-      c->movq(srcpix3, ptr(src.r(), i + 24));
-
-      c->movdqa(dstpix0, ptr(dst.r(), i +  0));
-      c->movdqa(dstpix2, ptr(dst.r(), i + 16));
-
-      c_op.doPixelRaw_8(
-        dstpix0, srcpix0, dstpix1, srcpix1,
-        dstpix2, srcpix2, dstpix3, srcpix3,
-        GeneratorOpComposite32_SSE2::Raw4UnpackFromDst0 |
-        GeneratorOpComposite32_SSE2::Raw4UnpackFromDst2 |
-        GeneratorOpComposite32_SSE2::Raw4PackToDst0 |
-        GeneratorOpComposite32_SSE2::Raw4PackToDst2);
-
-      c->movdqa(ptr(dst.r(), i +  0), dstpix0);
-      c->movdqa(ptr(dst.r(), i + 16), dstpix2);
-    }
-#else
     for (i = 0; i < mainLoopSize; i += 16)
     {
       Label *L_LocalLoopExit = c->newLabel();
 
       c->movdqu(srcpix0, ptr(src.r(), i + 0));
-/*
-      Label *L_1 = c->newLabel();
-      c->movdqa(srcpix1, srcpix0);
-      c->pcmpeqb(srcpix1, ptr(rconst.r(), RCONST_DISP(CxFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)));
-      c->pmovmskb(t.r32(), srcpix1);
-      c->and_(t.r32(), 0x8888);
-      c->cmp(t.r32(), 0x8888);
-      c->jnz(L_1);
-      c->movdqa(ptr(dst.r(), i + 0), srcpix0);
-      c->jmp(L_LocalLoopExit);
-      c->bind(L_1);
-*/
 
+/*
       // This can skip compositing of pixels with zero alpha
       if (c_op.op == Operation::CompositeOver)
       {
         c->pxor(srcpix1, srcpix1);
         c->pcmpeqb(srcpix1, srcpix0);
         c->pmovmskb(t.r32(), srcpix1);
-        c->and_(t.r32(), 0x8888);
-        c->cmp(t.r32(), 0x8888);
+        c->cmp(t.r32(), 0xFFFF);
         c->jz(L_LocalLoopExit);
+      }
+*/
+      // This can improve speed by skipping pixels of zero or full alpha
+      if (c_op.op == Operation::CompositeOver)
+      {
+        Label *L_1 = c->newLabel();
+        SysIntRef k = f->newVariable(VARIABLE_TYPE_SYSINT, 0);
+
+        c->pcmpeqb(dstpix0, dstpix0);
+        c->pxor(dstpix1, dstpix1);
+
+        c->pcmpeqb(dstpix0, srcpix0);
+        c->pcmpeqb(dstpix1, srcpix0);
+
+        c->pmovmskb(k.r32(), dstpix0);
+        c->pmovmskb(t.r32(), dstpix1);
+
+        c->and_(k.r32(), 0x8888);
+        c->cmp(t.r32(), 0xFFFF);
+        c->jz(L_LocalLoopExit);
+
+        c->cmp(k.r32(), 0x8888);
+        c->jnz(L_1);
+        c->movdqa(ptr(dst.r(), i + 0), srcpix0);
+        c->jmp(L_LocalLoopExit);
+
+        c->bind(L_1);
       }
 
       c->movdqa(dstpix0, ptr(dst.r(), i + 0));
@@ -1976,12 +1932,11 @@ void Generator::_Composite32_SSE2(
 
       c->bind(L_LocalLoopExit);
     }
-#endif // UNROLL_8
     c->add(src.r(), mainLoopSize);
     c->add(dst.r(), mainLoopSize);
 
     c->sub(cnt.r(), mainLoopSize / 4);
-    c->jnc(L_Loop);
+    c->jnc(L_Loop, HINT_TAKEN);
 
     c->add(cnt.r(), mainLoopSize / 4);
     c->jz(L_Exit);
@@ -1991,7 +1946,7 @@ void Generator::_Composite32_SSE2(
   // [Tail]
   // ------------------------------------------------------------------------
 
-  if (unroll)
+  if (maxPixelsInLoop >= 2)
   {
     Label* L_TailSkip = c->newLabel();
 
@@ -2003,11 +1958,10 @@ void Generator::_Composite32_SSE2(
 
     c->movq(srcpix0, ptr(src.r()));
     c->movq(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, true);
-    c->movq(ptr(dst.r()), dstpix0);
-
     c->add(src.r(), 8);
     c->add(dst.r(), 8);
+    c_op.doPixelRaw(dstpix0, srcpix0, true);
+    c->movq(ptr(dst.r(), -8), dstpix0);
 
     c->sub(cnt.r(), 2);
     c->jnc(L_Tail);
@@ -2018,11 +1972,10 @@ void Generator::_Composite32_SSE2(
 
     c->movd(srcpix0, ptr(src.r()));
     c->movd(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r()), dstpix0);
-
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
+    c_op.doPixelRaw(dstpix0, srcpix0, false);
+    c->movd(ptr(dst.r(), -4), dstpix0);
   }
   else
   {
@@ -2031,11 +1984,11 @@ void Generator::_Composite32_SSE2(
 
     c->movd(srcpix0, ptr(src.r()));
     c->movd(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r()), dstpix0);
-
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
+    c_op.doPixelRaw(dstpix0, srcpix0, false);
+    c->movd(ptr(dst.r(), -4), dstpix0);
+
     c->dec(cnt.r());
     c->jnz(L_Tail);
   }
@@ -2046,6 +1999,43 @@ void Generator::_Composite32_SSE2(
 // ============================================================================
 // [BlitJit::Generator - Helpers]
 // ============================================================================
+
+void Generator::stream_mov(const Mem& dst, const Register& src)
+{
+  if (nonThermalHint && (features & AsmJit::CpuInfo::Feature_SSE2) != 0)
+  {
+    c->movnti(dst, src);
+  }
+  else
+  {
+    c->mov(dst, src);
+  }
+}
+
+void Generator::stream_movq(const Mem& dst, const MMRegister& src)
+{
+  if (nonThermalHint && (features & (AsmJit::CpuInfo::Feature_SSE | 
+                                     AsmJit::CpuInfo::Feature_3dNow)) != 0)
+  {
+    c->movntq(dst, src);
+  }
+  else
+  {
+    c->movq(dst, src);
+  }
+}
+
+void Generator::stream_movdq(const Mem& dst, const XMMRegister& src)
+{
+  if (nonThermalHint)
+  {
+    c->movntdq(dst, src);
+  }
+  else
+  {
+    c->movdqa(dst, src);
+  }
+}
 
 void Generator::x86MemSet32(PtrRef& dst, Int32Ref& src, SysIntRef& cnt)
 {
@@ -2187,12 +2177,18 @@ void Generator::initConstants()
     // Align to 16 bytes (default SSE alignment)
     Constants* c = (Constants*)(void*)(((SysUInt)constantsStorage + 15) & ~15);
 
-    //c->Cx00000000000001000000000000000100.set_uw(0x0000, 0x0000, 0x0000, 0x0100, 0x0000, 0x0000, 0x0000, 0x0100);
     c->Cx00800080008000800080008000800080.set_uw(0x0080, 0x0080, 0x0080, 0x0080, 0x0080, 0x0080, 0x0080, 0x0080);
     c->Cx00FF00FF00FF00FF00FF00FF00FF00FF.set_uw(0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF);
-    c->CxFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.set_uw(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
-    //c->Cx000000000000FFFF000000000000FFFF.set_uw(0x0000, 0x0000, 0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0xFFFF);
-    //c->CxFFFFFFFFFFFF0100FFFFFFFFFFFF0100.set_uw(0xFFFF, 0xFFFF, 0xFFFF, 0x0100, 0xFFFF, 0xFFFF, 0xFFFF, 0x0100);
+
+    c->Cx000000FF00FF00FF000000FF00FF00FF.set_uw(0x00FF, 0x00FF, 0x00FF, 0x0000, 0x00FF, 0x00FF, 0x00FF, 0x0000);
+    c->Cx00FF000000FF00FF00FF000000FF00FF.set_uw(0x00FF, 0x00FF, 0x0000, 0x00FF, 0x00FF, 0x00FF, 0x0000, 0x00FF);
+    c->Cx00FF00FF000000FF00FF00FF000000FF.set_uw(0x00FF, 0x0000, 0x00FF, 0x00FF, 0x00FF, 0x0000, 0x00FF, 0x00FF);
+    c->Cx00FF00FF00FF000000FF00FF00FF0000.set_uw(0x0000, 0x00FF, 0x00FF, 0x00FF, 0x0000, 0x00FF, 0x00FF, 0x00FF);
+
+    c->Cx00FF00000000000000FF000000000000.set_uw(0x0000, 0x0000, 0x0000, 0x00FF, 0x0000, 0x0000, 0x0000, 0x00FF);
+    c->Cx000000FF00000000000000FF00000000.set_uw(0x0000, 0x0000, 0x00FF, 0x0000, 0x0000, 0x0000, 0x00FF, 0x0000);
+    c->Cx0000000000FF00000000000000FF0000.set_uw(0x0000, 0x00FF, 0x0000, 0x0000, 0x0000, 0x00FF, 0x0000, 0x0000);
+    c->Cx00000000000000FF00000000000000FF.set_uw(0x00FF, 0x0000, 0x0000, 0x0000, 0x00FF, 0x0000, 0x0000, 0x0000);
 
     for (i = 0; i < 256; i++)
     {
