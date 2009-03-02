@@ -1,4 +1,4 @@
-// BlitJit - Just In Time Image Blitting Library.
+// BlitJit - Just In Time Image Blitting Library for C++ Language.
 
 // Copyright (c) 2008-2009, Petr Kobalicek <kobalicek.petr@gmail.com>
 //
@@ -39,37 +39,8 @@ namespace BlitJit {
 struct GeneratorOp;
 struct GeneratorOpComposite32_SSE2;
 
-// [BlitJit - Calling Convention]
-
-#if defined(BLITJIT_X86)
-# define BLITJIT_CALL ASMJIT_STDCALL
-enum { CConv = AsmJit::CALL_CONV_STDCALL };
-#else
-# define BLITJIT_CALL
-enum { CConv = AsmJit::CALL_CONV_DEFAULT };
-#endif
-
 //! @addtogroup BlitJit_Main
 //! @{
-
-typedef void (BLITJIT_CALL *FillSpanFn)(
-  void* dst, const UInt32 src, SysUInt len);
-
-typedef void (BLITJIT_CALL *BlitSpanFn)(
-  void* dst, const void* src, SysUInt len);
-
-typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
-  void* dst, const void* src, const void* mask, SysUInt len);
-
-typedef void (BLITJIT_CALL *BlitRectFn)(
-  void* dst, const void* src,
-  SysInt dstStride, SysInt srcStride,
-  SysUInt width, SysUInt height);
-
-typedef void (BLITJIT_CALL *BlitRectMaskFn)(
-  void* dst, const void* src, const void* mask,
-  SysInt dstStride, SysInt srcStride, SysInt maskStride,
-  SysUInt width, SysUInt height);
 
 struct Generator
 {

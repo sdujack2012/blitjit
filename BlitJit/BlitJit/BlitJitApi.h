@@ -1,4 +1,4 @@
-// BlitJit - Just In Time Image Blitting Library.
+// BlitJit - Just In Time Image Blitting Library for C++ Language.
 
 // Copyright (c) 2008-2009, Petr Kobalicek <kobalicek.petr@gmail.com>
 //
