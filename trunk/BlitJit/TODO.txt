@@ -15,4 +15,3 @@ TODOs (BlitJit):
 [ ] Linear gradient fill with pad / repeat / reflect modes
 [ ] Radial gradient fill with pad / repeat / reflect modes
 [ ] Conical gradient fill with pad / repeat / reflect modes
-

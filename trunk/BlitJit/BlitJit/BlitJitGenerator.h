@@ -84,17 +84,22 @@ struct Generator
   Generator(AsmJit::Compiler* c);
   virtual ~Generator();
 
-  // [FillSpan]
+  // [FillSpan / FillRect]
 
   //! @brief Generate fill span function.
-  void fillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
+  void genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
+
+  //! @brief Generate fill rect function.
+  void genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
 
   // [BlitSpan / BlitRect]
 
   //! @brief Generate blit span function.
-  void blitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
+  void genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
   //! @brief Generate blit rect function.
-  void blitRect(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
+  void genBlitRect(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
+
+  // [Gen Helpers]
 
   //! @brief Generate MemCpy32 block.
   //! @internal
@@ -107,7 +112,7 @@ struct Generator
     PtrRef& dst, PtrRef& src, SysIntRef& cnt,
     GeneratorOpComposite32_SSE2& c_op);
 
-  // [Helpers]
+  // [Mov Helpers]
 
   void stream_mov(const Mem& dst, const Register& src);
   void stream_movq(const Mem& dst, const MMRegister& src);

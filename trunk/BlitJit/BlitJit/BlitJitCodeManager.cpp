@@ -72,13 +72,42 @@ FillSpanFn CodeManager::getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     AsmJit::Compiler c;
     Generator gen(&c);
 
-    gen.fillSpan(
+    gen.genFillSpan(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId], 
       Api::operations[oId]);
     fn = AsmJit::function_cast<FillSpanFn>(_memmgr.submit(c));
 
     _fillSpan[pos] = fn;
+    return fn;
+  }
+}
+
+FillRectFn CodeManager::getFillRect(UInt32 dId, UInt32 sId, UInt32 oId)
+{
+  SysUInt pos = calcPfPfOp(dId, sId, oId);
+  FillRectFn fn;
+  
+  if ((fn = _fillRect[pos]) != NULL)
+  {
+    return fn;
+  }
+  else
+  {
+    AutoLock _locked(_lock);
+    // If function was generated within non locked time
+    if ((fn = _fillRect[pos]) != NULL) return fn;
+
+    AsmJit::Compiler c;
+    Generator gen(&c);
+
+    gen.genFillRect(
+      Api::pixelFormats[dId],
+      Api::pixelFormats[sId], 
+      Api::operations[oId]);
+    fn = AsmJit::function_cast<FillRectFn>(_memmgr.submit(c));
+
+    _fillRect[pos] = fn;
     return fn;
   }
 }
@@ -101,7 +130,7 @@ BlitSpanFn CodeManager::getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     AsmJit::Compiler c;
     Generator gen(&c);
 
-    gen.blitSpan(
+    gen.genBlitSpan(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId], 
       Api::operations[oId]);
@@ -130,7 +159,7 @@ BlitRectFn CodeManager::getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId)
     AsmJit::Compiler c;
     Generator gen(&c);
 
-    gen.blitRect(
+    gen.genBlitRect(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId], 
       Api::operations[oId]);

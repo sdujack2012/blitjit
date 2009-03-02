@@ -55,7 +55,7 @@ enum { CConv = AsmJit::CALL_CONV_DEFAULT };
 
 //! @brief Fill span function prototype.
 typedef void (BLITJIT_CALL *FillSpanFn)(
-  void* dst, const UInt32 src, SysUInt len);
+  void* dst, const void* src, SysUInt len);
 
 //! @brief Blit span function prototype.
 typedef void (BLITJIT_CALL *BlitSpanFn)(
