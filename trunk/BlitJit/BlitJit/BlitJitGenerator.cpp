@@ -1514,7 +1514,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     Label* L_TailEnd = c->newLabel();
     Label* L_Exit    = c->newLabel();
 
-    Int32 mainLoopSize = 128;
+    Int32 mainLoopSize = 64;
     Int32 i;
 
     // ------------------------------------------------------------------------
@@ -1575,27 +1575,28 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->jz(L_Exit);
 
     c->bind(L_Tail);
-    c->mov(t.r(), 2);
-    c->cmp(t.r(), cnt.r());
-    c->jnle(L_TailEnd);
+    c->sub(cnt.r(), 2);
+    c->jc(L_TailEnd);
 
     c->bind(L_TailLoop);
-    c->movq(v0, ptr(src.r(), t.r(), 4, -8));
-    stream_movq(ptr(dst.r(), t.r(), 4, -8), v0);
 
-    c->add(t.r(), 2);
-    c->cmp(t.r(), cnt.r());
-    c->jle(L_TailLoop);
+    c->movq(v0, ptr(src.r()));
+    c->add(src.r(), 8);
+    stream_movq(ptr(dst.r()), v0);
+    c->add(dst.r(), 8);
+
+    c->sub(cnt.r(), 2);
+    c->jnc(L_TailLoop);
 
     c->bind(L_TailEnd);
-    c->lea(src.r(), ptr(src.r(), cnt.r(), 2));
-    c->lea(dst.r(), ptr(dst.r(), cnt.r(), 2));
 
-    c->and_(cnt.r(), 1);
+    c->add(cnt.r(), 2);
     c->jz(L_Exit);
 
-    c->mov(t.r32(), dword_ptr(src.r(), -4));
-    stream_mov(dword_ptr(dst.r(), -4), t.r32());
+    c->mov(t.r32(), dword_ptr(src.r()));
+    c->add(src.r(), 4);
+    stream_mov(dword_ptr(dst.r()), t.r32());
+    c->add(dst.r(), 4);
 
     c->bind(L_Exit);
   }
@@ -1743,7 +1744,8 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->sub(cnt.r(), 2);
     c->jnc(L_TailLoop);
 
-    c->add(t.r(), 2);
+    c->bind(L_TailEnd);
+    c->add(cnt.r(), 2);
     c->jz(L_Exit);
 
     c->mov(t.r32(), dword_ptr(src.r()));
@@ -1753,6 +1755,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     c->jmp(L_Exit);
 
     // Aligned Loop (Fastest possible)
+    c->align(16);
     c->bind(L_Loop_A);
     if (prefetch) 
     {
