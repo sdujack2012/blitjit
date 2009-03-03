@@ -154,6 +154,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     c->punpcklbw(dst0, z.r());
 
     doPixelUnpacked(dst0, src0, two);
+
     c->packuswb(dst0, dst0);
   }
 
