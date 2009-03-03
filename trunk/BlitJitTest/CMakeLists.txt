@@ -46,6 +46,7 @@ Set(ASMJIT_PRETTYPRINTER_HEADERS
 
 Set(BLITJIT_SOURCES
   ${BLITJIT_DIR}/BlitJit/BlitJitApi.cpp
+  ${BLITJIT_DIR}/BlitJit/BlitJitCodeManager.cpp
   ${BLITJIT_DIR}/BlitJit/BlitJitDefs.cpp
   ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.cpp
   ${BLITJIT_DIR}/BlitJit/BlitJitLock.cpp
@@ -55,6 +56,7 @@ Set(BLITJIT_SOURCES
 Set(BLITJIT_HEADERS
   ${BLITJIT_DIR}/BlitJit/BlitJit.h
   ${BLITJIT_DIR}/BlitJit/BlitJitApi.h
+  ${BLITJIT_DIR}/BlitJit/BlitJitCodeManager.h
   ${BLITJIT_DIR}/BlitJit/BlitJitConfig.h
   ${BLITJIT_DIR}/BlitJit/BlitJitDefs.h
   ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.h
@@ -64,6 +66,10 @@ Set(BLITJIT_HEADERS
 
 Include_Directories(${ASMJIT_DIR})
 Include_Directories(${BLITJIT_DIR})
+
+If (WIN32)
+Link_Libraries(gdi32)
+EndIf (WIN32)
 
 Find_Package(SDL REQUIRED)
 If(NOT SDL_FOUND)
