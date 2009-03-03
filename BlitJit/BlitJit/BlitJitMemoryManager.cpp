@@ -125,8 +125,8 @@ void* MemoryManager::submit(AsmJit::Compiler& c)
 {
   AsmJit::Assembler a;
 
-  AsmJit::PrettyPrinter logger;
-  a.setLogger(&logger);
+  // AsmJit::PrettyPrinter logger;
+  // a.setLogger(&logger);
 
   c.build(a);
   return submit(a);
