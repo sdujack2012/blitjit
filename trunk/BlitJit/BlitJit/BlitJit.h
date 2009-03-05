@@ -39,32 +39,9 @@
 //! @addtogroup BlitJit_Config
 //! @{
 
-//! @def BLITJIT_OS
-//! @brief Macro that contains information about operating system.
-//!
-//! Supported values are @c BLITJIT_WINDOWS (1) for Windows or 
-//! @c BLITJIT_POSIX (2) for Posix operating systems (Linux, BSD, MacOS).
-
-//! @def BLITJIT_WINDOWS
-//! @brief Used in @c BLITJIT_OS macro.
-//!
-//! Value is 1.
-
-//! @def BLITJIT_POSIX
-//! @brief Used in @c BLITJIT_OS macro.
-//!
-//! Value is 2.
-
 //! @def BLITJIT_API
 //! @brief Attribute that's added to classes that can be exported if BlitJit
 //! is compiled as a dll library.
-
-//! @def BLITJIT_VAR
-//! @brief Attribute that's added to variables that can be exported if BlitJit
-//! is compiled as a dll library.
-//!
-//! @note Default value is extern, because registers are declared in .cpp file
-//! and not in headers.
 
 //! @def BLITJIT_MALLOC
 //! @brief Function to call to allocate dynamic memory.
@@ -89,8 +66,7 @@
 
 // [Includes]
 
-#include "BlitJitConfig.h"
-
+#include "BlitJitBuild.h"
 #include "BlitJitApi.h"
 #include "BlitJitCodeManager.h"
 #include "BlitJitDefs.h"

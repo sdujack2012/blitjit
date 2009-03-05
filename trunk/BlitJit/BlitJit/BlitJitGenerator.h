@@ -28,16 +28,16 @@
 #define _BLITJITGENERATOR_H
 
 // [Dependencies]
-#include "BlitJitConfig.h"
-
 #include <AsmJit/AsmJitAssembler.h>
 #include <AsmJit/AsmJitCompiler.h>
+
+#include "BlitJitBuild.h"
 
 namespace BlitJit {
 
 // [BlitJit - Forward declarations]
 struct GeneratorOp;
-struct GeneratorOpComposite32_SSE2;
+struct GeneratorOp_Composite32_SSE2;
 
 //! @addtogroup BlitJit_Main
 //! @{
@@ -57,6 +57,9 @@ struct Generator
 
   typedef AsmJit::PtrRef PtrRef;
   typedef AsmJit::Int32Ref Int32Ref;
+#if defined(ASMJIT_X64)
+  typedef AsmJit::Int64Ref Int64Ref; 
+#endif // ASMJIT_X64
   typedef AsmJit::SysIntRef SysIntRef;
   typedef AsmJit::MMRef MMRef;
   typedef AsmJit::XMMRef XMMRef;
@@ -96,10 +99,14 @@ struct Generator
 
   //! @brief Generate blit span function.
   void genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
+
   //! @brief Generate blit rect function.
   void genBlitRect(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
 
-  // [Gen Helpers]
+  // [Helpers]
+
+  void _MemSet32(
+    PtrRef& dst, Int32Ref& src, SysIntRef& cnt);
 
   //! @brief Generate MemCpy32 block.
   //! @internal
@@ -110,15 +117,13 @@ struct Generator
   //! @internal
   void _Composite32_SSE2(
     PtrRef& dst, PtrRef& src, SysIntRef& cnt,
-    GeneratorOpComposite32_SSE2& c_op);
+    GeneratorOp_Composite32_SSE2& c_op);
 
-  // [Mov Helpers]
+  // [Streaming]
 
   void stream_mov(const Mem& dst, const Register& src);
   void stream_movq(const Mem& dst, const MMRegister& src);
   void stream_movdq(const Mem& dst, const XMMRegister& src);
-
-  void x86MemSet32(AsmJit::PtrRef& dst, AsmJit::Int32Ref& src, AsmJit::SysIntRef& cnt);
 
   // variables in fomrat cN means constants, index is N - Constants[N]
   void xmmExpandAlpha_0000AAAA(const XMMRegister& r);

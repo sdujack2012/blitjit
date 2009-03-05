@@ -1,6 +1,7 @@
 TODOs (BlitJit):
 [ ] Converting images from one pixel format to another
-    This is likely blitting one image to another using CompositeSrc operation
+    This is likely blitting one image to another using CompositeSrc operation, but
+    converting can be also better optimized for some pixel formats.
 [ ] Alpha Premultiply / Demultiply (should be used together with converting images)
     This is likely blitting one image to another using CompositeSrc operation
 [ ] Currently alpha position in ARGB32_SSE2 generator is hardcoded, fix it.

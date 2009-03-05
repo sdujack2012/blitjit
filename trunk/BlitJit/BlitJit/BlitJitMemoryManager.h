@@ -28,12 +28,12 @@
 #define _BLITJITMEMORYMANAGER_H
 
 // [Dependencies]
-#include "BlitJitConfig.h"
-#include "BlitJitLock.h"
-
-#include <AsmJit/AsmJitConfig.h>
+#include <AsmJit/AsmJitBuild.h>
 #include <AsmJit/AsmJitAssembler.h>
 #include <AsmJit/AsmJitCompiler.h>
+
+#include "BlitJitBuild.h"
+#include "BlitJitLock.h"
 
 namespace BlitJit {
 

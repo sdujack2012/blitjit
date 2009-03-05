@@ -24,8 +24,7 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Dependencies]
-#include "BlitJitConfig.h"
-
+#include "BlitJitBuild.h"
 #include "BlitJitApi.h"
 #include "BlitJitCodeManager.h"
 #include "BlitJitDefs.h"

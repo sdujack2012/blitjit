@@ -28,7 +28,7 @@
 #define _BLITJITCODEMANAGER_H
 
 // [Dependencies]
-#include "BlitJitConfig.h"
+#include "BlitJitBuild.h"
 #include "BlitJitDefs.h"
 #include "BlitJitGenerator.h"
 #include "BlitJitLock.h"

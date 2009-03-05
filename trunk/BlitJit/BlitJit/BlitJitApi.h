@@ -28,7 +28,7 @@
 #define _BLITJITAPI_H
 
 // [Dependencies]
-#include "BlitJitConfig.h"
+#include "BlitJitBuild.h"
 #include "BlitJitDefs.h"
 #include "BlitJitLock.h"
 #include "BlitJitMemoryManager.h"
