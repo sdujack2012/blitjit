@@ -38,7 +38,8 @@ namespace BlitJit {
 // [BlitJit::Macros]
 // ============================================================================
 
-#define RCONST_DISP(__cname__) (Int32)( (UInt8 *)&Generator::constants->__cname__ - (UInt8 *)Generator::constants )
+#define RCONST_DISP(__cname__) \
+  (Int32)( (UInt8 *)&Generator::constants->__cname__ - (UInt8 *)Generator::constants )
 
 // ============================================================================
 // [BlitJit::GeneratorOp]
@@ -58,17 +59,17 @@ struct GeneratorOp
 };
 
 // ============================================================================
-// [BlitJit::CompositeOp32]
+// [BlitJit::GeneratorOpCompositeOp32]
 // ============================================================================
 
 //! @brief Implementation of compositing operations for SSE2 instruction set.
-struct GeneratorOpComposite32_SSE2 : public GeneratorOp
+struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
 {
   // --------------------------------------------------------------------------
   // [Construction / Destruction]
   // --------------------------------------------------------------------------
 
-  GeneratorOpComposite32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), maxPixelsInLoop(0)
+  GeneratorOp_Composite32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), maxPixelsInLoop(0)
   {
     maxPixelsInLoop = 4;
 
@@ -84,7 +85,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     if (op == Operation::CompositeSaturate  ) maxPixelsInLoop = 1;
   }
 
-  virtual ~GeneratorOpComposite32_SSE2() {}
+  virtual ~GeneratorOp_Composite32_SSE2() {}
 
   enum RawFlags
   {
@@ -105,10 +106,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
     g->initRConst();
 
     z.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    z.alloc();
-
     c0x0080.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    c0x0080.alloc();
 
     c->pxor(z.r(), z.r());
     c->movdqa(c0x0080.r(), ptr(g->rconst.r(), 
@@ -687,19 +685,14 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
         c->paddusb(dst1, src1);
         break;
       case Operation::CompositeSubtract:
-        // TODO
-        c->psubusb(dst0, src0);
-        c->psubusb(dst1, src1);
-        break;
       case Operation::CompositeMultiply:
-        // TODO
-        doPackedMultiply_4(
-          dst0, src0, t0,
-          dst1, src1, t1);
-        break;
       case Operation::CompositeScreen:
       case Operation::CompositeDarken:
       case Operation::CompositeLighten:
+      case Operation::CompositeDifference:
+      case Operation::CompositeExclusion:
+      case Operation::CompositeInvert:
+      case Operation::CompositeInvertRgb:
       case Operation::CompositeSaturate:
       {
         BLITJIT_ASSERT(0);
@@ -803,31 +796,20 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
       c->pmullw(a0, b0);          // a0 *= b0
       c->pmullw(a1, b1);          // a1 *= b1
 
-/*
-      // Low quality div
-      c->psrlw(a0, 8);            // a0 /= 256
-      c->psrlw(a1, 8);            // a1 /= 256
-      if (moveToT0T1)
-      {
-        c->movdqa(t0, a0);
-        c->movdqa(t1, a1);
-      }
-*/
-
       c->paddusw(a0, r);          // a0 += 80
       c->paddusw(a1, r);          // a1 += 80
 
       c->movdqa(t0, a0);          // t0  = a0
-      c->movdqa(t1, a1);          // t1  = a1
       c->psrlw(a0, 8);            // a0 /= 256
+      c->movdqa(t1, a1);          // t1  = a1
       c->psrlw(a1, 8);            // a1 /= 256
 
       if (moveToT0T1)
       {
         c->paddusw(t0, a0);       // t0 += a0
-        c->paddusw(t1, a1);       // t1 += a1
-
         c->psrlw(t0, 8);          // t0 /= 256
+
+        c->paddusw(t1, a1);       // t1 += a1
         c->psrlw(t1, 8);          // t1 /= 256
       }
       else
@@ -838,7 +820,6 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
         c->psrlw(a0, 8);          // a0 /= 256
         c->psrlw(a1, 8);          // a1 /= 256
       }
-
     }
     // Special case if t0 is t1 (can be used to save one regiter if you
     // haven't it)
@@ -911,6 +892,7 @@ struct GeneratorOpComposite32_SSE2 : public GeneratorOp
 
     c->pmullw(a0, b0);          // a0 *= b0
     c->pmullw(c0, d0);          // c0 *= d0
+
     c->pmullw(e0, f0);          // e0 *= f0
     c->pmullw(g0, h0);          // g0 *= h0
 
@@ -1072,13 +1054,8 @@ void Generator::genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   SysIntRef cnt = f->argument(2);
 
   cnt.setPriority(0);
-  cnt.alloc();
-
   dst.setPriority(0);
-  dst.alloc();
-
   src.setPriority(0);
-  src.alloc();
 
   // If source pixel format not contains alpha channel, add it
   if (!pfSrc.isAlpha())
@@ -1373,7 +1350,7 @@ void Generator::genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
     }
     else if (optimize == OptimizeSSE2)
     {
-      GeneratorOpComposite32_SSE2 c_op(this, c, f, op.id());
+      GeneratorOp_Composite32_SSE2 c_op(this, c, f, op.id());
       c_op.init();
       _Composite32_SSE2(dst, src, cnt, c_op);
       c_op.free();
@@ -1448,7 +1425,7 @@ void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   {
     if (optimize == OptimizeSSE2)
     {
-      GeneratorOpComposite32_SSE2 c_op(this, c, f, op.id());
+      GeneratorOp_Composite32_SSE2 c_op(this, c, f, op.id());
       c_op.init();
 
       Label* L_Loop = c->newLabel();
@@ -1469,22 +1446,80 @@ void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   c->endFunction();
 }
 
+// ============================================================================
+// [BlitJit::Generator - MemSet32]
+// ============================================================================
+
+void Generator::_MemSet32(PtrRef& dst, Int32Ref& src, SysIntRef& cnt)
+{
+  StateRef state(f->saveState());
+
+  SysIntRef tmp(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
+  tmp.alloc();
+
+  Label* L1 = c->newLabel();
+  Label* L2 = c->newLabel();
+
+  c->cmp(cnt.r(), 8);
+  c->jl(L2);
+
+  c->mov(tmp.r(), cnt.r());
+  c->shr(cnt.r(), 3);
+  c->and_(tmp.r(), 7);
+
+  // Unrolled loop, we are using align 4 here, because this path will be 
+  // generated only for older CPUs.
+  c->align(4);
+  c->bind(L1);
+
+  c->mov(dword_ptr(dst.r(),  0), src.r());
+  c->mov(dword_ptr(dst.r(),  4), src.r());
+  c->mov(dword_ptr(dst.r(),  8), src.r());
+  c->mov(dword_ptr(dst.r(), 12), src.r());
+  c->mov(dword_ptr(dst.r(), 16), src.r());
+  c->mov(dword_ptr(dst.r(), 20), src.r());
+  c->mov(dword_ptr(dst.r(), 24), src.r());
+  c->mov(dword_ptr(dst.r(), 28), src.r());
+
+  c->add(dst.r(), 32);
+  c->dec(cnt.r());
+  c->jnz(L1);
+
+  c->mov(cnt.r(), tmp.r());
+  c->jz(c->currentFunction()->exitLabel());
+
+  // Tail
+  c->align(4);
+  c->bind(L2);
+
+  c->mov(dword_ptr(dst.r()), src.r());
+
+  c->add(dst.r(), 4);
+  c->dec(cnt.r());
+  c->jnz(L2);
+}
+
+// ============================================================================
+// [BlitJit::Generator - MemCpy32]
+// ============================================================================
+
 void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
 {
+  StateRef state(f->saveState());
+
   // --------------------------------------------------------------------------
   // [MemCopy32 - X86]
   // --------------------------------------------------------------------------
   if (optimize == OptimizeX86)
   {
-    Int32Ref pix = f->newVariable(VARIABLE_TYPE_INT32, 0);
-    pix.alloc();
+    Int32Ref tmp(f->newVariable(VARIABLE_TYPE_INT32, 0));
 
     Label* L_Loop = c->newLabel();
     c->bind(L_Loop);
 
-    c->mov(pix.r(), dword_ptr(src.r()));
+    c->mov(tmp.r(), dword_ptr(src.r()));
     c->add(src.r(), 4);
-    stream_mov(dword_ptr(dst.r()), pix.r());
+    stream_mov(dword_ptr(dst.r()), tmp.r());
     c->add(dst.r(), 4);
 
     c->dec(cnt.r());
@@ -1496,12 +1531,12 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
   // --------------------------------------------------------------------------
   else if (optimize == OptimizeMMX)
   {
-    SysIntRef t = f->newVariable(VARIABLE_TYPE_SYSINT, 0);
+    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
 
-    MMRef _v0 = f->newVariable(VARIABLE_TYPE_MM, 0);
-    MMRef _v1 = f->newVariable(VARIABLE_TYPE_MM, 0);
-    MMRef _v2 = f->newVariable(VARIABLE_TYPE_MM, 0);
-    MMRef _v3 = f->newVariable(VARIABLE_TYPE_MM, 0);
+    MMRef _v0(f->newVariable(VARIABLE_TYPE_MM, 0));
+    MMRef _v1(f->newVariable(VARIABLE_TYPE_MM, 0));
+    MMRef _v2(f->newVariable(VARIABLE_TYPE_MM, 0));
+    MMRef _v3(f->newVariable(VARIABLE_TYPE_MM, 0));
 
     MMRegister v0 = _v0.r();
     MMRegister v1 = _v1.r();
@@ -1607,12 +1642,12 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
   // --------------------------------------------------------------------------
   else if (optimize == OptimizeSSE2)
   {
-    SysIntRef t = f->newVariable(VARIABLE_TYPE_SYSINT, 0);
+    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
 
-    XMMRef _v0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _v1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _v2 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _v3 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+    XMMRef _v0(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _v1(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _v2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _v3(f->newVariable(VARIABLE_TYPE_XMM, 0));
 
     XMMRegister v0 = _v0.r();
     XMMRegister v1 = _v1.r();
@@ -1788,16 +1823,22 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
   }
 }
 
+// ============================================================================
+// [BlitJit::Generator - Composite32]
+// ============================================================================
+
 void Generator::_Composite32_SSE2(
   PtrRef& dst, PtrRef& src, SysIntRef& cnt,
-  GeneratorOpComposite32_SSE2& c_op)
+  GeneratorOp_Composite32_SSE2& c_op)
 {
-  SysIntRef t = f->newVariable(VARIABLE_TYPE_SYSINT, 0);
+  StateRef state(f->saveState());
 
-  XMMRef _dstpix0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-  XMMRef _dstpix1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-  XMMRef _srcpix0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-  XMMRef _srcpix1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
+  SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
+
+  XMMRef _dstpix0(f->newVariable(VARIABLE_TYPE_XMM, 0));
+  XMMRef _dstpix1(f->newVariable(VARIABLE_TYPE_XMM, 0));
+  XMMRef _srcpix0(f->newVariable(VARIABLE_TYPE_XMM, 0));
+  XMMRef _srcpix1(f->newVariable(VARIABLE_TYPE_XMM, 0));
 
   XMMRegister srcpix0 = _srcpix0.r();
   XMMRegister dstpix0 = _dstpix0.r();
@@ -1848,10 +1889,11 @@ void Generator::_Composite32_SSE2(
 
     c->movd(srcpix0, ptr(src.r()));
     c->movd(dstpix0, ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0, srcpix0, false);
+    c->movd(ptr(dst.r()), dstpix0);
+
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r(), -4), dstpix0);
 
     if (maxPixelsInLoop >= 4)
     {
@@ -1928,9 +1970,9 @@ void Generator::_Composite32_SSE2(
       // Source and destination is in srcpix0 and dstpix0, also we want to
       // pack destination to dstpix0.
       c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
-        GeneratorOpComposite32_SSE2::Raw4UnpackFromSrc0 |
-        GeneratorOpComposite32_SSE2::Raw4UnpackFromDst0 |
-        GeneratorOpComposite32_SSE2::Raw4PackToDst0);
+        GeneratorOp_Composite32_SSE2::Raw4UnpackFromSrc0 |
+        GeneratorOp_Composite32_SSE2::Raw4UnpackFromDst0 |
+        GeneratorOp_Composite32_SSE2::Raw4PackToDst0);
 
       c->movdqa(ptr(dst.r(), i + 0), dstpix0);
 
@@ -1962,11 +2004,11 @@ void Generator::_Composite32_SSE2(
 
     c->movq(srcpix0, ptr(src.r()));
     c->movq(dstpix0, ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0, srcpix0, true);
+    c->movq(ptr(dst.r()), dstpix0);
+
     c->add(src.r(), 8);
     c->add(dst.r(), 8);
-    c_op.doPixelRaw(dstpix0, srcpix0, true);
-    c->movq(ptr(dst.r(), -8), dstpix0);
-
     c->sub(cnt.r(), 2);
     c->jnc(L_Tail);
 
@@ -1976,10 +2018,11 @@ void Generator::_Composite32_SSE2(
 
     c->movd(srcpix0, ptr(src.r()));
     c->movd(dstpix0, ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0, srcpix0, false);
+    c->movd(ptr(dst.r()), dstpix0);
+
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r(), -4), dstpix0);
   }
   else
   {
@@ -1988,11 +2031,11 @@ void Generator::_Composite32_SSE2(
 
     c->movd(srcpix0, ptr(src.r()));
     c->movd(dstpix0, ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0, srcpix0, false);
+    c->movd(ptr(dst.r()), dstpix0);
+
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r(), -4), dstpix0);
-
     c->dec(cnt.r());
     c->jnz(L_Tail);
   }
@@ -2001,7 +2044,7 @@ void Generator::_Composite32_SSE2(
 }
 
 // ============================================================================
-// [BlitJit::Generator - Helpers]
+// [BlitJit::Generator - Streaming]
 // ============================================================================
 
 void Generator::stream_mov(const Mem& dst, const Register& src)
@@ -2039,53 +2082,6 @@ void Generator::stream_movdq(const Mem& dst, const XMMRegister& src)
   {
     c->movdqa(dst, src);
   }
-}
-
-void Generator::x86MemSet32(PtrRef& dst, Int32Ref& src, SysIntRef& cnt)
-{
-  SysIntRef tmp = f->newVariable(VARIABLE_TYPE_SYSINT, 0);
-  tmp.alloc();
-
-  Label* L1 = c->newLabel();
-  Label* L2 = c->newLabel();
-
-  c->cmp(cnt.r(), 8);
-  c->jl(L2);
-
-  c->mov(tmp.r(), cnt.r());
-  c->shr(cnt.r(), 3);
-  c->and_(tmp.r(), 7);
-
-  // Unrolled loop, we are using align 4 here, because this path will be 
-  // generated only for older CPUs.
-  c->align(4);
-  c->bind(L1);
-
-  c->mov(dword_ptr(dst.r(),  0), src.r());
-  c->mov(dword_ptr(dst.r(),  4), src.r());
-  c->mov(dword_ptr(dst.r(),  8), src.r());
-  c->mov(dword_ptr(dst.r(), 12), src.r());
-  c->mov(dword_ptr(dst.r(), 16), src.r());
-  c->mov(dword_ptr(dst.r(), 20), src.r());
-  c->mov(dword_ptr(dst.r(), 24), src.r());
-  c->mov(dword_ptr(dst.r(), 28), src.r());
-
-  c->add(dst.r(), 32);
-  c->dec(cnt.r());
-  c->jnz(L1);
-
-  c->mov(cnt.r(), tmp.r());
-  c->jz(c->currentFunction()->exitLabel());
-
-  // Tail
-  c->align(4);
-  c->bind(L2);
-
-  c->mov(dword_ptr(dst.r()), src.r());
-
-  c->add(dst.r(), 4);
-  c->dec(cnt.r());
-  c->jnz(L2);
 }
 
 void Generator::xmmExpandAlpha_0000AAAA(const XMMRegister& r)

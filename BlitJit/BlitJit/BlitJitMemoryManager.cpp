@@ -24,15 +24,15 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Dependencies]
-#include "BlitJitConfig.h"
-#include "BlitJitLock.h"
-#include "BlitJitMemoryManager.h"
-
-#include <AsmJit/AsmJitConfig.h>
+#include <AsmJit/AsmJitBuild.h>
 #include <AsmJit/AsmJitAssembler.h>
 #include <AsmJit/AsmJitCompiler.h>
 #include <AsmJit/AsmJitPrettyPrinter.h>
 #include <AsmJit/AsmJitVM.h>
+
+#include "BlitJitBuild.h"
+#include "BlitJitLock.h"
+#include "BlitJitMemoryManager.h"
 
 #include <string.h>
 
@@ -125,8 +125,8 @@ void* MemoryManager::submit(AsmJit::Compiler& c)
 {
   AsmJit::Assembler a;
 
-  // AsmJit::PrettyPrinter logger;
-  // a.setLogger(&logger);
+  AsmJit::PrettyPrinter logger;
+  a.setLogger(&logger);
 
   c.build(a);
   return submit(a);

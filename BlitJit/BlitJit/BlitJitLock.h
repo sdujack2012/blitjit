@@ -28,13 +28,13 @@
 #define _BLITJITLOCK_H
 
 // [Dependencies]
-#include "BlitJitConfig.h"
+#include "BlitJitBuild.h"
 
-#if BLITJIT_OS == BLITJIT_WINDOWS
+#if defined(BLITJIT_WINDOWS)
 #include <windows.h>
 #endif // BLITJIT_WINDOWS
 
-#if BLITJIT_OS == BLITJIT_POSIX
+#if defined(BLITJIT_POSIX)
 #include <pthread.h>
 #endif // BLITJIT_POSIX
 
@@ -46,20 +46,20 @@ namespace BlitJit {
 //! @brief Lock.
 struct Lock
 {
-#if BLITJIT_OS == BLITJIT_WINDOWS
+#if defined(BLITJIT_WINDOWS)
   typedef CRITICAL_SECTION Handle;
 #endif // BLITJIT_WINDOWS
-#if BLITJIT_OS == BLITJIT_POSIX
+#if defined(BLITJIT_POSIX)
   typedef pthread_mutex_t Handle;
 #endif // BLITJIT_POSIX
 
   inline Lock()
   {
-#if BLITJIT_OS == BLITJIT_WINDOWS
+#if defined(BLITJIT_WINDOWS)
     InitializeCriticalSection(&_handle);
     // InitializeLockAndSpinCount(&_handle, 2000);
 #endif // BLITJIT_WINDOWS
-#if BLITJIT_OS == BLITJIT_POSIX
+#if defined(BLITJIT_POSIX)
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
@@ -69,10 +69,10 @@ struct Lock
 
   inline ~Lock()
   {
-#if BLITJIT_OS == BLITJIT_WINDOWS
+#if defined(BLITJIT_WINDOWS)
     DeleteCriticalSection(&_handle);
 #endif // BLITJIT_WINDOWS
-#if BLITJIT_OS == BLITJIT_POSIX
+#if defined(BLITJIT_POSIX)
     pthread_mutex_destroy(&_handle);
 #endif // BLITJIT_POSIX
   }
@@ -89,20 +89,20 @@ struct Lock
 
   inline void lock()
   { 
-#if BLITJIT_OS == BLITJIT_WINDOWS
+#if defined(BLITJIT_WINDOWS)
     EnterCriticalSection(&_handle);
 #endif // BLITJIT_WINDOWS
-#if BLITJIT_OS == BLITJIT_POSIX
+#if defined(BLITJIT_POSIX)
     pthread_mutex_lock(&_handle);
 #endif // BLITJIT_POSIX
   }
 
   inline void unlock()
   {
-#if BLITJIT_OS == BLITJIT_WINDOWS
+#if defined(BLITJIT_WINDOWS)
     LeaveCriticalSection(&_handle);
 #endif // BLITJIT_WINDOWS
-#if BLITJIT_OS == BLITJIT_POSIX
+#if defined(BLITJIT_POSIX)
     pthread_mutex_unlock(&_handle);
 #endif // BLITJIT_POSIX
   }

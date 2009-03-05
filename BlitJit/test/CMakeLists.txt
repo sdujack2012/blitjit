@@ -16,6 +16,7 @@ Set(ASMJIT_BASE_HEADERS
   ${ASMJIT_DIR}/AsmJit/AsmJit.h
   ${ASMJIT_DIR}/AsmJit/AsmJitAssembler.h
   ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitBuild.h
   ${ASMJIT_DIR}/AsmJit/AsmJitConfig.h
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.h
   ${ASMJIT_DIR}/AsmJit/AsmJitDefs.h
@@ -56,6 +57,7 @@ Set(BLITJIT_SOURCES
 Set(BLITJIT_HEADERS
   ${BLITJIT_DIR}/BlitJit/BlitJit.h
   ${BLITJIT_DIR}/BlitJit/BlitJitApi.h
+  ${BLITJIT_DIR}/BlitJit/BlitJitBuild.h
   ${BLITJIT_DIR}/BlitJit/BlitJitConfig.h
   ${BLITJIT_DIR}/BlitJit/BlitJitDefs.h
   ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.h

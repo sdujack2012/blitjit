@@ -28,10 +28,10 @@
 #define _BLITJITDEFS_H
 
 // [Dependencies]
-#include <AsmJit/AsmJitConfig.h>
+#include <AsmJit/AsmJitBuild.h>
 #include <AsmJit/AsmJitCompiler.h>
 
-#include "BlitJitConfig.h"
+#include "BlitJitBuild.h"
 #include "BlitJitLock.h"
 
 namespace BlitJit {
@@ -52,6 +52,7 @@ enum { CConv = AsmJit::CALL_CONV_STDCALL };
 enum { CConv = AsmJit::CALL_CONV_DEFAULT };
 #endif
 
+// [BlitJit - Span Function Prototypes]
 
 //! @brief Fill span function prototype.
 typedef void (BLITJIT_CALL *FillSpanFn)(
@@ -65,6 +66,7 @@ typedef void (BLITJIT_CALL *BlitSpanFn)(
 typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
   void* dst, const void* src, const void* mask, SysUInt len);
 
+// [BlitJit - Rect Function Prototypes]
 
 //! @brief Fill rect function prototype.
 typedef void (BLITJIT_CALL *FillRectFn)(
@@ -82,6 +84,7 @@ typedef void (BLITJIT_CALL *BlitRectMaskFn)(
   SysInt dstStride, SysInt srcStride, SysInt maskStride,
   SysUInt width, SysUInt height);
 
+// [BlitJit - Pixel Format]
 
 //! @brief Pixel format.
 struct PixelFormat
@@ -140,25 +143,39 @@ struct PixelFormat
 
   // variables, not private, because this is structure usually read-only.
 
+  //! @brief Pixel format name.
   char _name[32];
+  //! @brief Pixel format id.
   UInt32 _id;
 
+  //! @brief Pixel format depth.
   UInt32 _depth;
 
+  //! @brief Red color size in bits.
   UInt32 _rSize;
+  //! @brief Green color size in bits.
   UInt32 _gSize;
+  //! @brief Blue color size in bits.
   UInt32 _bSize;
+  //! @brief Alpha color size in bits.
   UInt32 _aSize;
 
+  //! @brief Red color shift.
   UInt32 _rShift;
+  //! @brief Green color shift.
   UInt32 _gShift;
+  //! @brief Blue color shift.
   UInt32 _bShift;
+  //! @brief Alpha color shift.
   UInt32 _aShift;
 
+  //! @brief True if colors are premultiplied by alpha.
   UInt32 _isPremultiplied : 1;
+  //! @brief True if colors are in float format.
   UInt32 _isFloat : 1;
 };
 
+// [BlitJit - Operator]
 
 //! @brief Operation.
 struct Operation
@@ -174,60 +191,161 @@ struct Operation
   enum Id
   {
     //! @brief Source to dest (dest will be altered).
+    //! 
+    //! Dca' = Sca
+    //! Da'  = Sa
     CompositeSrc,
 
     //! @brief Dest to source (source will be altered).
+    //!
+    //! Dca' = Dca
+    //! Da'  = Da
     CompositeDest,
 
     //! @brief Source over dest.
+    //!
+    //! Dca' = Sca + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da
     CompositeOver,
 
     //! @brief Dest over source.
+    //!
+    //! Dca' = Dca + Sca.(1 - Da)
+    //! Da'  = Da + Sa - Da.Sa
     CompositeOverReverse,
 
     //! @brief Source in dest.
+    //!
+    //! Dca' = Sca.Da
+    //! Da'  = Sa.Da 
     CompositeIn,
 
     //! @brief Dest in source.
+    //!
+    //! Dca' = Dca.Sa
+    //! Da'  = Da.Sa
     CompositeInReverse,
 
     //! @brief Source out dest.
+    //!
+    //! Dca' = Sca.(1 - Da)
+    //! Da'  = Sa.(1 - Da) 
     CompositeOut,
 
     //! @brief Dest out source.
+    //!
+    //! Dca' = Dca.(1 - Sa) 
+    //! Da'  = Da.(1 - Sa) 
     CompositeOutReverse,
 
     //! @brief Source atop dest.
+    //!
+    //! Dca' = Sca.Da + Dca.(1 - Sa)
+    //! Da'  = Da
     CompositeAtop,
 
     //! @brief Dest atop source.
+    //!
+    //! Dca' = Dca.Sa + Sca.(1 - Da)
+    //! Da'  = Sa 
     CompositeAtopReverse,
 
     //! @brief Source xor dest.
+    //!
+    //! Dca' = Sca.(1 - Da) + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - 2.Sa.Da 
     CompositeXor,
 
     //! @brief Clear to fully transparent or black (if image not contains alpha 
     //! channel).
+    //!
+    //! Dca' = 0
+    //! Da'  = 0
     CompositeClear,
 
+    //! @brief The source is added to the destination and replaces the 
+    //! destination.
+    //!
+    //! Dca' = Sca + Dca
+    //! Da'  = Sa + Da 
     CompositeAdd,
 
+    //! @brief The source color is subtracted from destination and replaces 
+    //! the destination.
+    //!
+    //! Dca' = Dca - Sca
+    //! Da'  = 1 - (1 - Sa).(1 - Da)
     CompositeSubtract,
 
+    //! @brief The source is multiplied by the destination and replaces 
+    //! the destination.
+    //!
+    //! Dca' = Sca.Dca + Sca.(1 - Da) + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da 
     CompositeMultiply,
 
+    //! @brief The source and destination are complemented and then multiplied 
+    //! and then replace the destination.
+    //! 
+    //! Dca' = Sca + Dca - Sca.Dca
+    //! Da'  = Sa + Da - Sa.Da 
     CompositeScreen,
 
+    //! @brief Selects the darker of the destination and source colors.
+    //!
+    //! Dca' = min(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da 
+    //!
+    //! or 
+    //!  
+    //! if Sca.Da < Dca.Sa
+    //!   src-over()
+    //! otherwise
+    //!   dst-over()
     CompositeDarken,
 
+    //! @brief Selects the lighter of the destination and source colors.
+    //!
+    //! Dca' = max(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da 
+    //!
+    //! or 
+    //!  
+    //! if Sca.Da > Dca.Sa
+    //!   src-over()
+    //! otherwise
+    //!   dst-over()
     CompositeLighten,
 
+    //! @brief Subtracts the darker of the two constituent colors from 
+    //! the lighter. Painting with white inverts the destination color. 
+    //! Painting with black produces no change.
+    //!
+    //! Dca' = abs(Dca.Sa - Sca.Da) + Sca.(1 - Da) + Dca.(1 - Sa)
+    //!      = Sca + Dca - 2.min(Sca.Da, Dca.Sa)
+    //! Da'  = Sa + Da - Sa.Da 
     CompositeDifference,
 
+    //! @brief Produces an effect similar to that of 'difference', but 
+    //! appears as lower contrast. Painting with white inverts the 
+    //! destination color. Painting with black produces no change.
+    //!
+    //! Dca' = (Sca.Da + Dca.Sa - 2.Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da 
     CompositeExclusion,
 
+    //! @brief Inverts alpha channel of destination based on alpha channel of
+    //! source.
+    //!
+    //! Dca' = (Da - Dca) * Sa + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da
     CompositeInvert,
 
+    //! @brief Inverts alpha channel and colors of destination based on alpha channel of
+    //! source.
+    //!
+    //! Dca' = (Da - Dca) * Sca + Dca.(1 - Sa)
+    //! Da'  = Sa + Da - Sa.Da
     CompositeInvertRgb,
 
     CompositeSaturate,
@@ -238,7 +356,9 @@ struct Operation
 
   // variables, not private, because this structure is usually read-only.
 
+  //! @brief Operator name.
   char _name[32];
+  //! @brief Operator id.
   UInt32 _id;
 
   UInt8 _srcPixelUsed;
