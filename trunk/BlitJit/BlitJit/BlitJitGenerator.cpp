@@ -1321,13 +1321,8 @@ void Generator::genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   SysIntRef cnt = f->argument(2);
 
   cnt.setPriority(0);
-  cnt.alloc();
-
   dst.setPriority(0);
-  dst.alloc();
-
   src.setPriority(0);
-  src.alloc();
 
   // [CombineCopy]
   if (op.id() == Operation::CompositeSrc)
@@ -1384,24 +1379,19 @@ void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   SysIntRef cnt(f->newVariable(VARIABLE_TYPE_SYSINT));
 
   // Adjust dstStride and srcStride
-  SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT));
+  {
+    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT));
 
-  c->mov(t.r(), width);
-  c->shl(t.r(), 2);
+    c->mov(t.r(), width);
+    c->shl(t.r(), 2);
 
-  c->sub(dstStride, t.r());
-  c->sub(srcStride, t.r());
-
-  t.destroy();
+    c->sub(dstStride, t.r());
+    c->sub(srcStride, t.r());
+  }
 
   cnt.setPriority(0);
-  cnt.alloc();
-
   dst.setPriority(0);
-  dst.alloc();
-
   src.setPriority(0);
-  src.alloc();
 
   // [CombineCopy]
   if (op.id() == Operation::CompositeSrc)
@@ -1538,10 +1528,10 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     MMRef _v2(f->newVariable(VARIABLE_TYPE_MM, 0));
     MMRef _v3(f->newVariable(VARIABLE_TYPE_MM, 0));
 
-    MMRegister v0 = _v0.r();
-    MMRegister v1 = _v1.r();
-    MMRegister v2 = _v2.r();
-    MMRegister v3 = _v3.r();
+    MMRegister v0 = _v0.x();
+    MMRegister v1 = _v1.x();
+    MMRegister v2 = _v2.x();
+    MMRegister v3 = _v3.x();
 
     Label* L_Aligned = c->newLabel();
     Label* L_Loop    = c->newLabel();
@@ -1649,10 +1639,10 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     XMMRef _v2(f->newVariable(VARIABLE_TYPE_XMM, 0));
     XMMRef _v3(f->newVariable(VARIABLE_TYPE_XMM, 0));
 
-    XMMRegister v0 = _v0.r();
-    XMMRegister v1 = _v1.r();
-    XMMRegister v2 = _v2.r();
-    XMMRegister v3 = _v3.r();
+    XMMRegister v0 = _v0.x();
+    XMMRegister v1 = _v1.x();
+    XMMRegister v2 = _v2.x();
+    XMMRegister v3 = _v3.x();
 
     Label* L_Align   = c->newLabel();
     Label* L_Aligned = c->newLabel();
@@ -1793,6 +1783,7 @@ void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
     // Aligned Loop (Fastest possible)
     c->align(16);
     c->bind(L_Loop_A);
+
     if (prefetch) 
     {
       c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
@@ -1833,15 +1824,10 @@ void Generator::_Composite32_SSE2(
 {
   StateRef state(f->saveState());
 
-  SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
-
-  XMMRef _dstpix0(f->newVariable(VARIABLE_TYPE_XMM, 0));
-  XMMRef _dstpix1(f->newVariable(VARIABLE_TYPE_XMM, 0));
-  XMMRef _srcpix0(f->newVariable(VARIABLE_TYPE_XMM, 0));
-  XMMRef _srcpix1(f->newVariable(VARIABLE_TYPE_XMM, 0));
-
-  XMMRegister srcpix0 = _srcpix0.r();
-  XMMRegister dstpix0 = _dstpix0.r();
+  XMMRef dstpix0(f->newVariable(VARIABLE_TYPE_XMM, 5));
+  XMMRef srcpix0(f->newVariable(VARIABLE_TYPE_XMM, 5));
+  XMMRef dstpix1(f->newVariable(VARIABLE_TYPE_XMM, 5));
+  XMMRef srcpix1(f->newVariable(VARIABLE_TYPE_XMM, 5));
 
   Label* L_Align   = c->newLabel();
   Label* L_Aligned = c->newLabel();
@@ -1854,7 +1840,9 @@ void Generator::_Composite32_SSE2(
   Int32 i;
   UInt32 maxPixelsInLoop = c_op.maxPixelsInLoop;
 
-  if (maxPixelsInLoop) t.alloc();
+  // Allocate XMM registers 
+  dstpix0.alloc();
+  srcpix0.alloc();
 
   // ------------------------------------------------------------------------
   // [Align]
@@ -1862,6 +1850,8 @@ void Generator::_Composite32_SSE2(
 
   if (maxPixelsInLoop >= 2)
   {
+    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT));
+
     // For small size, we will use tail loop
     if (maxPixelsInLoop >= 4)
     {
@@ -1881,16 +1871,14 @@ void Generator::_Composite32_SSE2(
       c->mov(t.r(), dst.r());
       c->and_(t.r(), 7);
       c->jz(L_Aligned);
-
-      c->dec(t.r());
     }
 
     c->bind(L_Align);
 
-    c->movd(srcpix0, ptr(src.r()));
-    c->movd(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r()), dstpix0);
+    c->movd(srcpix0.x(), ptr(src.r()));
+    c->movd(dstpix0.x(), ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), false);
+    c->movd(ptr(dst.r()), dstpix0.r());
 
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
@@ -1899,9 +1887,13 @@ void Generator::_Composite32_SSE2(
     {
       c->dec(t.r());
       c->jnz(L_Align);
+    }
 
+    if (maxPixelsInLoop >= 4)
+    {
       // This shouldn't happen, because we are expecting 16 byte alignment in 
-      // main loop, but we must be sure!
+      // main loop, but we must be sure! If destination is not aligned, we will
+      // use tail loop that is slow, but processor will be happy.
       c->mov(t.r(), dst.r());
       c->and_(t.r(), 3);
       c->jnz(L_Tail);
@@ -1916,8 +1908,8 @@ void Generator::_Composite32_SSE2(
 
   if (maxPixelsInLoop >= 4)
   {
-    XMMRegister dstpix1 = _dstpix1.r();
-    XMMRegister srcpix1 = _srcpix1.r();
+    dstpix1.alloc();
+    srcpix1.alloc();
 
     c->sub(cnt.r(), mainLoopSize / 4);
     c->jc(L_Tail);
@@ -1934,50 +1926,58 @@ void Generator::_Composite32_SSE2(
 
     for (i = 0; i < mainLoopSize; i += 16)
     {
-      Label *L_LocalLoopExit = c->newLabel();
+      State* state = f->saveState();
+      Label* L_LocalLoopExit = c->newLabel();
 
-      c->movdqu(srcpix0, ptr(src.r(), i + 0));
+      c->movdqu(srcpix0.x(), ptr(src.r(), i + 0));
 
       // This can improve speed by skipping pixels of zero or full alpha
       if (c_op.op == Operation::CompositeOver)
       {
-        Label *L_1 = c->newLabel();
-        SysIntRef k = f->newVariable(VARIABLE_TYPE_SYSINT, 0);
+        Label* L_1 = c->newLabel();
 
-        c->pcmpeqb(dstpix0, dstpix0);
-        c->pxor(dstpix1, dstpix1);
+        c->pcmpeqb(dstpix0.r(), dstpix0.r());
+        c->pxor(dstpix1.r(), dstpix1.r());
 
-        c->pcmpeqb(dstpix0, srcpix0);
-        c->pcmpeqb(dstpix1, srcpix0);
+        c->pcmpeqb(dstpix0.r(), srcpix0.r());
+        c->pcmpeqb(dstpix1.r(), srcpix0.r());
 
-        c->pmovmskb(k.r32(), dstpix0);
-        c->pmovmskb(t.r32(), dstpix1);
+        {
+          SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
+          SysIntRef k(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
 
-        c->and_(k.r32(), 0x8888);
-        c->cmp(t.r32(), 0xFFFF);
-        c->jz(L_LocalLoopExit);
+          c->pmovmskb(k.r32(), dstpix0.r());
+          c->pmovmskb(t.r32(), dstpix1.r());
 
-        c->cmp(k.r32(), 0x8888);
-        c->jnz(L_1);
-        c->movdqa(ptr(dst.r(), i + 0), srcpix0);
+          c->and_(k.r32(), 0x8888);
+          c->cmp(t.r32(), 0xFFFF);
+          c->jz(L_LocalLoopExit);
+
+          c->cmp(k.r32(), 0x8888);
+          c->jnz(L_1);
+        }
+
+        c->movdqa(ptr(dst.r(), i + 0), srcpix0.r());
         c->jmp(L_LocalLoopExit);
 
         c->bind(L_1);
       }
 
-      c->movdqa(dstpix0, ptr(dst.r(), i + 0));
+      c->movdqa(dstpix0.x(), ptr(dst.r(), i + 0));
 
       // Source and destination is in srcpix0 and dstpix0, also we want to
       // pack destination to dstpix0.
-      c_op.doPixelRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
+      c_op.doPixelRaw_4(dstpix0.r(), srcpix0.r(), dstpix1.r(), srcpix1.r(),
         GeneratorOp_Composite32_SSE2::Raw4UnpackFromSrc0 |
         GeneratorOp_Composite32_SSE2::Raw4UnpackFromDst0 |
         GeneratorOp_Composite32_SSE2::Raw4PackToDst0);
 
-      c->movdqa(ptr(dst.r(), i + 0), dstpix0);
+      c->movdqa(ptr(dst.r(), i + 0), dstpix0.r());
 
       c->bind(L_LocalLoopExit);
+      f->restoreState(state);
     }
+
     c->add(src.r(), mainLoopSize);
     c->add(dst.r(), mainLoopSize);
 
@@ -1986,6 +1986,9 @@ void Generator::_Composite32_SSE2(
 
     c->add(cnt.r(), mainLoopSize / 4);
     c->jz(L_Exit);
+
+    dstpix1.unuse();
+    srcpix1.unuse();
   }
 
   // ------------------------------------------------------------------------
@@ -2002,10 +2005,10 @@ void Generator::_Composite32_SSE2(
     c->align(8);
     c->bind(L_Tail);
 
-    c->movq(srcpix0, ptr(src.r()));
-    c->movq(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, true);
-    c->movq(ptr(dst.r()), dstpix0);
+    c->movq(srcpix0.x(), ptr(src.r()));
+    c->movq(dstpix0.x(), ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), true);
+    c->movq(ptr(dst.r()), dstpix0.r());
 
     c->add(src.r(), 8);
     c->add(dst.r(), 8);
@@ -2016,10 +2019,10 @@ void Generator::_Composite32_SSE2(
     c->add(cnt.r(), 2);
     c->jz(L_Exit);
 
-    c->movd(srcpix0, ptr(src.r()));
-    c->movd(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r()), dstpix0);
+    c->movd(srcpix0.x(), ptr(src.r()));
+    c->movd(dstpix0.x(), ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), false);
+    c->movd(ptr(dst.r()), dstpix0.r());
 
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
@@ -2029,10 +2032,10 @@ void Generator::_Composite32_SSE2(
     c->align(8);
     c->bind(L_Tail);
 
-    c->movd(srcpix0, ptr(src.r()));
-    c->movd(dstpix0, ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0, srcpix0, false);
-    c->movd(ptr(dst.r()), dstpix0);
+    c->movd(srcpix0.x(), ptr(src.r()));
+    c->movd(dstpix0.x(), ptr(dst.r()));
+    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), false);
+    c->movd(ptr(dst.r()), dstpix0.r());
 
     c->add(src.r(), 4);
     c->add(dst.r(), 4);
@@ -2154,8 +2157,7 @@ void Generator::initRConst()
   if (body & BodyRConst) return;
 
   rconst.use(f->newVariable(VARIABLE_TYPE_PTR, 0));
-  rconst.alloc();
-  c->mov(rconst.r(), (SysInt)constants);
+  c->mov(rconst.x(), (SysInt)constants);
 
   body |= BodyRConst;
 }
