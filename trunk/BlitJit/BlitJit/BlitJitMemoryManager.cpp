@@ -27,13 +27,14 @@
 #include <AsmJit/AsmJitBuild.h>
 #include <AsmJit/AsmJitAssembler.h>
 #include <AsmJit/AsmJitCompiler.h>
-#include <AsmJit/AsmJitPrettyPrinter.h>
+#include <AsmJit/AsmJitLogger.h>
 #include <AsmJit/AsmJitVM.h>
 
 #include "BlitJitBuild.h"
 #include "BlitJitLock.h"
 #include "BlitJitMemoryManager.h"
 
+#include <stdio.h>
 #include <string.h>
 
 namespace BlitJit {
@@ -125,7 +126,7 @@ void* MemoryManager::submit(AsmJit::Compiler& c)
 {
   AsmJit::Assembler a;
 
-  AsmJit::PrettyPrinter logger;
+  AsmJit::FileLogger logger(stderr);
   a.setLogger(&logger);
 
   c.build(a);
