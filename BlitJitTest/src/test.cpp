@@ -1,3 +1,7 @@
+// Config
+// #define USE_CAIRO 1
+
+// [Includes]
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,14 +12,19 @@
 #include <SDL.h>
 #include <SDL_image.h>
 
-#if ASMJIT_OS == ASMJIT_WINDOWS
+#if defined(USE_CAIRO)
+#include <cairo.h>
+#endif // USE_CAIRO
+
+#if defined(ASMJIT_WINDOWS)
 #include <windows.h>
 #endif // ASMJIT_WINDOWS
 
-#if ASMJIT_OS == ASMJIT_POSIX
+#if defined(ASMJIT_POSIX)
 #include <sys/time.h>
 #endif // ASMJIT_POSIX
 
+// [Typedefs]
 typedef unsigned char DATA8;
 typedef unsigned short DATA16;
 typedef unsigned int DATA32;
@@ -80,6 +89,18 @@ struct AbstractImage
   void clear(DATA32 c);
   void fill(int x, int y, int w, int h, DATA32 rgba, DATA32 op);
   void blit(int x, int y, AbstractImage* img, DATA32 op);
+
+#if defined(USE_CAIRO)
+  cairo_surface_t* as_cairo()
+  {
+    return cairo_image_surface_create_for_data(
+      (unsigned char*)_pixels,
+      CAIRO_FORMAT_ARGB32,
+      _w,
+      _h,
+      _stride);
+  }
+#endif // USE_CAIRO
 
 protected:
   int _w;
@@ -212,7 +233,7 @@ void AbstractImage::blit(int x, int y, AbstractImage* img, DATA32 op)
 */
 }
 
-#if ASMJIT_OS == ASMJIT_WINDOWS
+#if defined(ASMJIT_WINDOWS)
 
 struct DibImage : AbstractImage
 {
@@ -519,21 +540,6 @@ ok:
 
 
 
-// #define USE_CAIRO
-
-#if defined(USE_CAIRO)
-#include <cairo.h>
-
-cairo_surface_t* CairoFromSdl(SDL_Surface* s)
-{
-  return cairo_image_surface_create_for_data(
-    (unsigned char*)s->pixels,
-    CAIRO_FORMAT_ARGB32,
-    s->w,
-    s->h,
-    s->pitch);
-}
-#endif // USE_CAIRO
 
 
 
@@ -552,7 +558,7 @@ struct BenchmarkIt
 
   static AsmJit::UInt32 getTicks()
   {
-#if ASMJIT_OS == ASMJIT_WINDOWS
+#if defined(ASMJIT_WINDOWS)
     return GetTickCount();
 #else
     AsmJit::UInt32 ticks;
@@ -582,6 +588,20 @@ struct Application
   void onRender();
   void onPause();
   void onEvent(SDL_Event* ev);
+
+  int test_BlitJit_Blit(int count);
+  int test_BlitJit_Blend(int count);
+
+  int test_Sdl_Blit(int count);
+  int test_Sdl_Blend(int count);
+
+  int test_Gdi_Blit(int count);
+  int test_Gdi_Blend(int count);
+
+#if defined(USE_CAIRO)
+  int test_Cairo_Blit(int count);
+  int test_Cairo_Blend(int count);
+#endif
 
   SdlImage* screen;
   SdlImage* img[4];
@@ -673,20 +693,24 @@ void Application::onRender()
 {
   screen->lock();
 
-  BenchmarkIt benchmark;
-  benchmark.start();
+  int count = 10000;
 
+  // printf("BlitJit - Copy: %d\n", test_BlitJit_Blit(count));
+  // printf("BlitJit - Blend: %d\n", test_BlitJit_Blend(count));
+
+  // printf("Sdl - Copy: %d\n", test_Sdl_Blit(count));
+  // printf("Sdl - Blend: %d\n", test_Sdl_Blend(count));
+
+  // printf("Gdi - Copy: %d\n", test_Gdi_Blit(count));
+  // printf("Gdi - Blend: %d\n", test_Gdi_Blend(count));
+
+  // printf("Cairo - Copy: %d\n", test_Cairo_Blit(count));
+  // printf("Cairo - Blend: %d\n", test_Cairo_Blend(count));
+
+#if 1
   int w = screen->w();
   int h = screen->h();
 
-/*
-  for (BlitJit::SysUInt i = 0; i < 100; i++)
-  {
-    MyFillRect(screen, rand() % (w - 200), rand() % (h - 200), 200, 200, (rand() << 16) | rand());
-  }
-*/
-
-#if 1
   {
     int x = 0, y = 0;
     screen->clear(0x00000000);
@@ -695,60 +719,16 @@ void Application::onRender()
       SdlImage* s = new SdlImage(128, 128);
 
       s->blit(0, 0, img[0], BlitJit::Operation::CompositeSrc);
-      s->blit(0, 0, img[2], i);
-      screen->blit(x * 150, y * 130, s, BlitJit::Operation::CompositeSrc);
+      s->blit(0, 0, img[1], i);
+      screen->blit(x * 150, y * 130, s, BlitJit::Operation::CompositeOver);
       delete s;
 
       if (++x == 6) { x = 0; y++; }
     }
 
-    //fprintf(stderr, "Used %d\n", (int)codemgr.memmgr().used());
+    // fprintf(stderr, "Used %d\n", (int)codemgr.memmgr().used());
   }
 #endif
-
-#if 0
-  for (BlitJit::SysUInt i = 0; i < 10000; i++)
-  {
-    SDL_Surface* s = img[i % 4];
-
-    //s->format->Amask = 0;
-    //SDL_Rect srcrect = { 0, 0, s->w, s->h };
-    //SDL_Rect dstrect = { rand() % (w - s->w), rand() % (h - s->h), s->w, s->h };
-    //SDL_LowerBlit(s, &srcrect, screen, &dstrect);
-
-    MyBlit(screen, rand() % (w - s->w), rand() % (h - s->h), s, BlitJit::Operation::CompositeOver);
-  }
-#endif
-
-#if 0 && defined (USE_CAIRO)
-  cairo_surface_t *c_screen = CairoFromSdl(screen);
-  cairo_surface_t *c_img[4];
-
-  c_img[0] = CairoFromSdl(img[0]);
-  c_img[1] = CairoFromSdl(img[1]);
-  c_img[2] = CairoFromSdl(img[2]);
-  c_img[3] = CairoFromSdl(img[3]);
-
-  cairo_t *cr = cairo_create(c_screen);
-
-  for (BlitJit::SysUInt i = 0; i < 10000; i++)
-  {
-    int r = rand() % 4;
-    cairo_surface_t* s = c_img[r];
-    cairo_set_source_surface(cr, s, rand() % (w - img[r]->w), rand() % (h - img[r]->h));
-    cairo_paint(cr);
-  }
-
-  cairo_destroy(cr);
-  cairo_surface_destroy(c_screen);
-  cairo_surface_destroy(c_img[0]);
-  cairo_surface_destroy(c_img[1]);
-  cairo_surface_destroy(c_img[2]);
-  cairo_surface_destroy(c_img[3]);
-
-#endif // USE_CAIRO
-
-  log("Ticks: %u\n", benchmark.delta());
 
   screen->unlock();
   SDL_Flip(screen->surface());
@@ -756,7 +736,7 @@ void Application::onRender()
 
 void Application::onPause()
 {
-  SDL_Delay(10);
+  SDL_Delay(25);
 }
 
 void Application::onEvent(SDL_Event* ev)
@@ -768,6 +748,234 @@ void Application::onEvent(SDL_Event* ev)
       break;
   }
 }
+
+// Test BlitJit library speed
+int Application::test_BlitJit_Blit(int count)
+{
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    AbstractImage* s = img[0];
+    screen->blit(
+      rand() % (screen->w() - s->w()), rand() % (screen->h() - s->h()),
+      s,
+      BlitJit::Operation::CompositeSrc);
+  }
+
+  return benchmark.delta();
+}
+
+int Application::test_BlitJit_Blend(int count)
+{
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    AbstractImage* s = img[0];
+    screen->blit(
+      rand() % (screen->w() - s->w()), rand() % (screen->h() - s->h()),
+      s,
+      BlitJit::Operation::CompositeOver);
+  }
+
+  return benchmark.delta();
+}
+
+// Test SDL library speed
+int Application::test_Sdl_Blit(int count)
+{
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  SDL_Surface* s = SDL_CreateRGBSurfaceFrom(
+    img[0]->pixels(),
+    img[0]->w(),
+    img[0]->h(), 
+    32,
+    img[0]->stride(),
+    0x00FF0000, 0x0000FF00, 0x000000FF, 0);
+
+  for (int i = 0; i < count; i++)
+  {
+    SDL_Rect srcrect = { 
+      0, 0, s->w, s->h
+    };
+    SDL_Rect dstrect = { 
+      rand() % (screen->w() - s->w),
+      rand() % (screen->h() - s->h), s->w, s->h 
+    };
+
+    SDL_LowerBlit(s, &srcrect, screen->surface(), &dstrect);
+  }
+
+  return benchmark.delta();
+}
+
+int Application::test_Sdl_Blend(int count)
+{
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    SdlImage* s = img[0];
+
+    SDL_Rect srcrect = { 
+      0, 0, s->w(), s->h() 
+    };
+    SDL_Rect dstrect = { 
+      rand() % (screen->w() - s->w()),
+      rand() % (screen->h() - s->h()), s->w(), s->h() 
+    };
+
+    SDL_LowerBlit(s->surface(), &srcrect, screen->surface(), &dstrect);
+  }
+
+  return benchmark.delta();
+}
+
+// Test GDI subsystem speed
+int Application::test_Gdi_Blit(int count)
+{
+#if defined(ASMJIT_WINDOWS)
+  DibImage* di_screen = new DibImage(screen->w(), screen->h());
+  di_screen->blit(0, 0, screen, BlitJit::Operation::CompositeSrc);
+
+  DibImage* di_0 = new DibImage(img[0]->w(), img[0]->h());
+  di_0->blit(0, 0, img[0], BlitJit::Operation::CompositeSrc);
+
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    DibImage* s = di_0;
+
+    BitBlt(
+      di_screen->getDc(),
+        rand() % (screen->w() - s->w()),
+        rand() % (screen->h() - s->h()), s->w(), s->h(), 
+      s->getDc(), 0, 0, SRCCOPY);
+  }
+
+  benchmark.delta();
+
+  screen->blit(0, 0, di_screen, BlitJit::Operation::CompositeSrc);
+
+  delete di_screen;
+  delete di_0;
+
+  return benchmark.t;
+#else
+  return 0;
+#endif
+}
+
+int Application::test_Gdi_Blend(int count)
+{
+#if defined(ASMJIT_WINDOWS)
+  DibImage* di_screen = new DibImage(screen->w(), screen->h());
+  di_screen->blit(0, 0, screen, BlitJit::Operation::CompositeSrc);
+
+  DibImage* di_0 = new DibImage(img[0]->w(), img[0]->h());
+  di_0->blit(0, 0, img[0], BlitJit::Operation::CompositeSrc);
+
+  BLENDFUNCTION bf;
+  bf.BlendOp = AC_SRC_OVER;
+  bf.BlendFlags = 0;
+  bf.SourceConstantAlpha = 0xFF;
+  bf.AlphaFormat = AC_SRC_ALPHA;
+
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    DibImage* s = di_0;
+
+    AlphaBlend(
+      di_screen->getDc(), 
+        rand() % (screen->w() - s->w()), 
+        rand() % (screen->h() - s->h()), s->w(), s->h(), 
+      s->getDc(), 0, 0, s->w(), s->h(),
+      bf);
+  }
+
+  benchmark.delta();
+
+  screen->blit(0, 0, di_screen, BlitJit::Operation::CompositeSrc);
+
+  delete di_screen;
+  delete di_0;
+
+  return benchmark.t;
+#else
+  return 0;
+#endif
+}
+
+#if defined(USE_CAIRO)
+int Application::test_Cairo_Blit(int count)
+{
+  cairo_surface_t *c_screen = screen->as_cairo();
+  cairo_surface_t *c_0 = img[0]->as_cairo();
+
+  cairo_t *context = cairo_create(c_screen);
+  cairo_set_operator(context, CAIRO_OPERATOR_SOURCE);
+
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    cairo_surface_t* s = c_0;
+    int x = rand() % (screen->w() - img[0]->w());
+    int y = rand() % (screen->h() - img[0]->h());
+    cairo_set_source_surface(context, s, x, y);
+    cairo_rectangle(context, x, y, img[0]->w(), img[0]->h());
+    cairo_fill(context);
+  }
+
+  benchmark.delta();
+
+  cairo_destroy(context);
+  cairo_surface_destroy(c_0);
+  cairo_surface_destroy(c_screen);
+
+  return benchmark.t;
+}
+
+int Application::test_Cairo_Blend(int count)
+{
+  cairo_surface_t *c_screen = screen->as_cairo();
+  cairo_surface_t *c_0 = img[0]->as_cairo();
+
+  cairo_t *context = cairo_create(c_screen);
+
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    cairo_surface_t* s = c_0;
+    cairo_set_source_surface(context, s,
+      rand() % (screen->w() - img[0]->w()),
+      rand() % (screen->h() - img[0]->h()));
+    cairo_paint(context);
+  }
+
+  benchmark.delta();
+
+  cairo_destroy(context);
+  cairo_surface_destroy(c_0);
+  cairo_surface_destroy(c_screen);
+
+  return benchmark.t;
+}
+#endif
 
 #undef main
 int main(int argc, char* argv[])
