@@ -24,6 +24,9 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Dependencies]
+#include <AsmJit/AsmJitCompiler.h>
+#include <AsmJit/AsmJitLogger.h>
+
 #include "BlitJitBuild.h"
 #include "BlitJitApi.h"
 #include "BlitJitCodeManager.h"
@@ -31,6 +34,8 @@
 #include "BlitJitGenerator.h"
 #include "BlitJitLock.h"
 #include "BlitJitMemoryManager.h"
+
+#include <stdio.h>
 
 namespace BlitJit {
 
@@ -47,10 +52,17 @@ CodeManager::CodeManager()
   memset(_blitSpan, 0, sizeof(_blitSpan));
   memset(_fillRect, 0, sizeof(_fillRect));
   memset(_blitRect, 0, sizeof(_blitRect));
+
+  _logger.setStream(stderr);
 }
 
 CodeManager::~CodeManager()
 {
+}
+
+void CodeManager::configureCompiler(AsmJit::Compiler* c)
+{
+  c->setLogger(&_logger);
 }
 
 FillSpanFn CodeManager::getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId)
@@ -69,6 +81,8 @@ FillSpanFn CodeManager::getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     if ((fn = _fillSpan[pos]) != NULL) return fn;
 
     AsmJit::Compiler c;
+    configureCompiler(&c);
+
     Generator gen(&c);
 
     gen.genFillSpan(
@@ -98,6 +112,8 @@ FillRectFn CodeManager::getFillRect(UInt32 dId, UInt32 sId, UInt32 oId)
     if ((fn = _fillRect[pos]) != NULL) return fn;
 
     AsmJit::Compiler c;
+    configureCompiler(&c);
+
     Generator gen(&c);
 
     gen.genFillRect(
@@ -127,6 +143,8 @@ BlitSpanFn CodeManager::getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     if ((fn = _blitSpan[pos]) != NULL) return fn;
 
     AsmJit::Compiler c;
+    configureCompiler(&c);
+
     Generator gen(&c);
 
     gen.genBlitSpan(
@@ -156,6 +174,8 @@ BlitRectFn CodeManager::getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId)
     if ((fn = _blitRect[pos]) != NULL) return fn;
 
     AsmJit::Compiler c;
+    configureCompiler(&c);
+
     Generator gen(&c);
 
     gen.genBlitRect(

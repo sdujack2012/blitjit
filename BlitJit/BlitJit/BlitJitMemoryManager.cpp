@@ -27,7 +27,6 @@
 #include <AsmJit/AsmJitBuild.h>
 #include <AsmJit/AsmJitAssembler.h>
 #include <AsmJit/AsmJitCompiler.h>
-#include <AsmJit/AsmJitLogger.h>
 #include <AsmJit/AsmJitVM.h>
 
 #include "BlitJitBuild.h"
@@ -125,10 +124,6 @@ void* MemoryManager::submit(AsmJit::Assembler& a)
 void* MemoryManager::submit(AsmJit::Compiler& c)
 {
   AsmJit::Assembler a;
-
-  AsmJit::FileLogger logger(stderr);
-  a.setLogger(&logger);
-
   c.build(a);
   return submit(a);
 }

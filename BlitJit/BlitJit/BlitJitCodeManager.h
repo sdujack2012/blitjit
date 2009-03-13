@@ -28,6 +28,9 @@
 #define _BLITJITCODEMANAGER_H
 
 // [Dependencies]
+#include <AsmJit/AsmJitCompiler.h>
+#include <AsmJit/AsmJitLogger.h>
+
 #include "BlitJitBuild.h"
 #include "BlitJitDefs.h"
 #include "BlitJitGenerator.h"
@@ -44,6 +47,8 @@ struct CodeManager
   CodeManager();
   ~CodeManager();
 
+  void configureCompiler(AsmJit::Compiler* c);
+
   FillSpanFn getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId);
   FillRectFn getFillRect(UInt32 dId, UInt32 sId, UInt32 oId);
 
@@ -51,6 +56,9 @@ struct CodeManager
   BlitRectFn getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId);
 
   inline MemoryManager& memmgr() { return _memmgr; }
+
+  // Logger
+  AsmJit::FileLogger _logger;
 
   // Functions
   enum
