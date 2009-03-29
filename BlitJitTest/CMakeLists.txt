@@ -8,12 +8,14 @@ Set(BLITJIT_DIR "../BlitJit")
 Set(ASMJIT_BASE_SOURCES
   ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.cpp
+  ${ASMJIT_DIR}/AsmJit/AsmJitLock.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitLogger.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitLoggerX86X64.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitLoggerX86X64Dump.cpp
+  ${ASMJIT_DIR}/AsmJit/AsmJitMemoryManager.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.cpp
   ${ASMJIT_DIR}/AsmJit/AsmJitUtil.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitVM.cpp
+  ${ASMJIT_DIR}/AsmJit/AsmJitVirtualMemory.cpp
 )
 
 Set(ASMJIT_BASE_HEADERS
@@ -25,12 +27,16 @@ Set(ASMJIT_BASE_HEADERS
   ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.h
   ${ASMJIT_DIR}/AsmJit/AsmJitDefs.h
   ${ASMJIT_DIR}/AsmJit/AsmJitDefsX86X64.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitLock.h
   ${ASMJIT_DIR}/AsmJit/AsmJitLogger.h
   ${ASMJIT_DIR}/AsmJit/AsmJitLoggerX86X64.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitMemoryManager.h
   ${ASMJIT_DIR}/AsmJit/AsmJitSerializer.h
   ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.h
   ${ASMJIT_DIR}/AsmJit/AsmJitUtil.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitVM.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitVirtualMemory.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitWarningsPop.h
+  ${ASMJIT_DIR}/AsmJit/AsmJitWarningsPush.h
 )
 
 Set(ASMJIT_COMPILER_SOURCES
@@ -47,8 +53,6 @@ Set(BLITJIT_SOURCES
   ${BLITJIT_DIR}/BlitJit/BlitJitCodeManager.cpp
   ${BLITJIT_DIR}/BlitJit/BlitJitDefs.cpp
   ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.cpp
-  ${BLITJIT_DIR}/BlitJit/BlitJitLock.cpp
-  ${BLITJIT_DIR}/BlitJit/BlitJitMemoryManager.cpp
 )
 
 Set(BLITJIT_HEADERS
@@ -59,15 +63,16 @@ Set(BLITJIT_HEADERS
   ${BLITJIT_DIR}/BlitJit/BlitJitConfig.h
   ${BLITJIT_DIR}/BlitJit/BlitJitDefs.h
   ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitLock.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitMemoryManager.h
 )
 
 Include_Directories(${ASMJIT_DIR})
 Include_Directories(${BLITJIT_DIR})
 
+# Build AsmJit statically
+Add_Definitions(-DASMJIT_API=)
+
 If (WIN32)
-Link_Libraries(gdi32 msimg32)
+  Link_Libraries(gdi32 msimg32)
 EndIf (WIN32)
 
 Find_Package(SDL REQUIRED)
