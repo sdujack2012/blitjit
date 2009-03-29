@@ -28,10 +28,10 @@
 #define _BLITJITAPI_H
 
 // [Dependencies]
+#include <AsmJit/AsmJitUtil.h>
+
 #include "BlitJitBuild.h"
 #include "BlitJitDefs.h"
-#include "BlitJitLock.h"
-#include "BlitJitMemoryManager.h"
 
 namespace BlitJit {
 
@@ -40,8 +40,51 @@ namespace BlitJit {
 
 struct BLITJIT_API Api
 {
+  // --------------------------------------------------------------------------
+  // [Initialization / Deinitialization]
+  // --------------------------------------------------------------------------
+
+  static void init();
+
+  // --------------------------------------------------------------------------
+  // [Pixel Formats]
+  // --------------------------------------------------------------------------
+
   static const PixelFormat pixelFormats[PixelFormat::Count];
+
+  // --------------------------------------------------------------------------
+  // [Operators]
+  // --------------------------------------------------------------------------
+
   static const Operation operations[Operation::Count];
+
+  // --------------------------------------------------------------------------
+  // [Constants]
+  // --------------------------------------------------------------------------
+
+  //! @brief Constants singleton that generated functions can use.
+  //!
+  //! There is only one allocated instance for all constants. Constants are
+  //! always 16 byte aligned so they can be used through SSE2 instructions.
+  struct Constants
+  {
+    AsmJit::XMMData Cx00800080008000800080008000800080; // [0]
+    AsmJit::XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [1]
+    
+    AsmJit::XMMData Cx000000FF00FF00FF000000FF00FF00FF; // [2]
+    AsmJit::XMMData Cx00FF000000FF00FF00FF000000FF00FF; // [3]
+    AsmJit::XMMData Cx00FF00FF000000FF00FF00FF000000FF; // [4]
+    AsmJit::XMMData Cx00FF00FF00FF000000FF00FF00FF0000; // [5]
+
+    AsmJit::XMMData Cx00FF00000000000000FF000000000000; // [6]
+    AsmJit::XMMData Cx000000FF00000000000000FF00000000; // [7]
+    AsmJit::XMMData Cx0000000000FF00000000000000FF0000; // [8]
+    AsmJit::XMMData Cx00000000000000FF00000000000000FF; // [9]
+    
+    AsmJit::XMMData CxDemultiply[256];
+  };
+
+  static Constants* constants;
 };
 
 //! @}

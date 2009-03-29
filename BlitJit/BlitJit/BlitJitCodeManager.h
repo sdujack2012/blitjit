@@ -29,20 +29,20 @@
 
 // [Dependencies]
 #include <AsmJit/AsmJitCompiler.h>
+#include <AsmJit/AsmJitLock.h>
 #include <AsmJit/AsmJitLogger.h>
+#include <AsmJit/AsmJitMemoryManager.h>
 
 #include "BlitJitBuild.h"
 #include "BlitJitDefs.h"
 #include "BlitJitGenerator.h"
-#include "BlitJitLock.h"
-#include "BlitJitMemoryManager.h"
 
 namespace BlitJit {
 
 //! @addtogroup BlitJit_Main
 //! @{
 
-struct CodeManager
+struct BLITJIT_API CodeManager
 {
   CodeManager();
   ~CodeManager();
@@ -55,7 +55,7 @@ struct CodeManager
   BlitSpanFn getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId);
   BlitRectFn getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId);
 
-  inline MemoryManager& memmgr() { return _memmgr; }
+  inline AsmJit::MemoryManager* memmgr() { return _memmgr; }
 
   // Logger
   AsmJit::FileLogger _logger;
@@ -78,10 +78,10 @@ struct CodeManager
   BlitRectFn _blitRect[BlitRectFnCount];
 
   // Memory manager
-  MemoryManager _memmgr;
+  AsmJit::MemoryManager* _memmgr;
 
   // Lock
-  Lock _lock;
+  AsmJit::Lock _lock;
 };
 
 //! @}
