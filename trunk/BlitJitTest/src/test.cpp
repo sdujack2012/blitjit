@@ -217,6 +217,7 @@ void AbstractImage::blit(int x, int y, AbstractImage* img, DATA32 op)
     BlitJit::PixelFormat::ARGB32,
     op);
   //printf("BLIT\n");
+  //fprintf(stderr, "%llX\n", (long long)blitRect);
   blitRect(dstPixels, srcPixels, dstStride, srcStride, (BlitJit::SysUInt)bltw, (BlitJit::SysUInt)blth);
 
 /*
@@ -707,6 +708,29 @@ void Application::onRender()
   // printf("Cairo - Copy: %d\n", test_Cairo_Blit(count));
   // printf("Cairo - Blend: %d\n", test_Cairo_Blend(count));
 
+#if 0
+  BenchmarkIt benchmark;
+  benchmark.start();
+  for (int p = 0; p < 1000; p++)
+  {
+    for (int a = 0; a < BlitJit::Operation::Count; a++)
+    {
+      AsmJit::Compiler c;
+      BlitJit::Generator gen(&c);
+
+      gen.genFillSpan(
+        BlitJit::Api::pixelFormats[BlitJit::PixelFormat::ARGB32],
+        BlitJit::Api::pixelFormats[BlitJit::PixelFormat::ARGB32], 
+        BlitJit::Api::operations[a]);
+      AsmJit::MemoryManager::global()->free(c.make());
+    }
+  }
+  benchmark.delta();
+  printf("Time %d, %g per one function \n", 
+    benchmark.t,
+    (double)benchmark.t / (double)(1000*BlitJit::Operation::Count));
+#endif
+
 #if 1
   int w = screen->w();
   int h = screen->h();
@@ -725,9 +749,12 @@ void Application::onRender()
 
       if (++x == 6) { x = 0; y++; }
     }
-
-    // fprintf(stderr, "Used %d\n", (int)codemgr.memmgr().used());
   }
+/*
+  fprintf(stderr, "Used %d, Allocated %d\n", 
+    AsmJit::MemoryManager::global()->used(),
+    AsmJit::MemoryManager::global()->allocated());
+*/
 #endif
 
   screen->unlock();
