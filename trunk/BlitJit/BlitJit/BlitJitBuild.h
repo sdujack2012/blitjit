@@ -85,6 +85,14 @@ namespace BlitJit
   static void crash(int* ptr = 0) { *ptr = 0; }
 }
 
+#if !defined(BLITJIT_USE)
+# define BLITJIT_USE(var) ((void)var)
+#endif // BLITJIT_USE
+
+#if !defined(BLITJIT_NOP)
+# define BLITJIT_NOP() ((void)0)
+#endif // BLITJIT_NOP
+
 // [BlitJit - Types]
 namespace BlitJit
 {
@@ -109,6 +117,14 @@ namespace BlitJit
 # define BLITJIT_INT64_C(num) num##LL
 # define BLITJIT_UINT64_C(num) num##ULL
 #endif
+
+// [BlitJit - C++ Macros]
+#define BLITJIT_ARRAY_SIZE(A) (sizeof(A) / sizeof(*A))
+
+#define BLITJIT_DISABLE_COPY(__type__) \
+private: \
+  inline __type__(const __type__& other); \
+  inline __type__& operator=(const __type__& other)
 
 // [BlitJit - Debug]
 #if defined(DEBUG) || 1

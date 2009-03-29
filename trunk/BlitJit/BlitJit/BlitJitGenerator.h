@@ -35,16 +35,26 @@
 
 namespace BlitJit {
 
-// [BlitJit - Forward declarations]
-struct GeneratorOp;
-struct GeneratorOp_Composite32_SSE2;
-
 //! @addtogroup BlitJit_Main
 //! @{
 
-struct Generator
+// forward declarations
+struct GeneratorOp;
+struct GeneratorOp_Composite32_SSE2;
+
+// ============================================================================
+// [BlitJit::Generator]
+// ============================================================================
+
+//! @brief Generator.
+struct BLITJIT_API Generator
 {
-  // [Typedefs]
+  // --------------------------------------------------------------------------
+  // [AsmJit Shortcuts]
+  // --------------------------------------------------------------------------
+
+  // We are not using AsmJit namespace in header files, this is convenience for
+  // code readibility. These types are used many times in Generator.
 
   typedef AsmJit::MMData MMData;
   typedef AsmJit::XMMData XMMData;
@@ -64,30 +74,60 @@ struct Generator
   typedef AsmJit::MMRef MMRef;
   typedef AsmJit::XMMRef XMMRef;
 
-  // [Enums]
+  // --------------------------------------------------------------------------
+  // [Optimization Flags]
+  // --------------------------------------------------------------------------
 
-  //! @brief Basic optimization flags.
+  //! @brief Generator optimization flags.
   enum Optimize
   {
-    //! @Brief Optimize only for X86/X64, don't use MMX or SSE2
+    //! @Brief Optimize only for X86/X64, don't use MMX or SSE2 registers
+    //!
+    //! If MMX/SSE2 is present and this flag is set, some special SSE2 
+    //! extensions can be used to improve speed (mainly non-thermal hints).
     OptimizeX86 = 0,
+
     //! @brief Optimize for MMX.
+    //!
+    //! MMX optimization can use SSE or 3dNow instructions, but SSE registers
+    //! will not be used.
     OptimizeMMX = 1,
+
     //! @brief Optimize for SSE/SSE2/SSE3/...
+    //!
+    //! This is maximum optimization that can be done by BlitJit. Generator can
+    //! use MMX/SSE/SSE2 and newer instructions to generate best code. Also 
+    //! this is most supported optimization.
     OptimizeSSE2 = 2
   };
 
+  // --------------------------------------------------------------------------
+  // [Body Flags]
+  // --------------------------------------------------------------------------
+
   enum Body
   {
-    BodyRConst = (1 << 0)
+    BodyUsingConstants  = 0x01,
+    BodyUsingMMZero     = 0x02,
+    BodyUsingXMMZero    = 0x04
   };
 
+  // --------------------------------------------------------------------------
   // [Construction / Destruction]
+  // --------------------------------------------------------------------------
 
+  //! @brief Create new @c Generator instance and assign Compiler @a c to it.
+  //!
+  //! Creating generator instance will generate no instructions, use @c gen...
+  //! methods to do this job.
   Generator(AsmJit::Compiler* c);
+
+  //! Destroy @c Generator instance.
   virtual ~Generator();
 
+  // --------------------------------------------------------------------------
   // [FillSpan / FillRect]
+  // --------------------------------------------------------------------------
 
   //! @brief Generate fill span function.
   void genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
@@ -95,7 +135,9 @@ struct Generator
   //! @brief Generate fill rect function.
   void genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op);
 
+  // --------------------------------------------------------------------------
   // [BlitSpan / BlitRect]
+  // --------------------------------------------------------------------------
 
   //! @brief Generate blit span function.
   void genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
@@ -103,15 +145,41 @@ struct Generator
   //! @brief Generate blit rect function.
   void genBlitRect(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operation& op);
 
-  // [Helpers]
+  // --------------------------------------------------------------------------
+  // [Mov Helpers]
+  // --------------------------------------------------------------------------
 
+  //! @brief Emit streaming mov instruction
+  //! (AsmJit::Serializer::mov() or AsmJit::Serializer::movnti() is used).
+  void _StreamMov(const Mem& dst, const Register& src);
+  //! @brief Emit streaming movq instruction
+  //! (AsmJit::Serializer::movq() or AsmJit::Serializer::movntq() is used).
+  void _StreamMovQ(const Mem& dst, const MMRegister& src);
+  //! @brief Emit streaming movdqa instruction
+  //! (AsmJit::Serializer::movdqa() or AsmJit::Serializer::movntdq() is used).
+  void _StreamMovDQ(const Mem& dst, const XMMRegister& src);
+
+  // --------------------------------------------------------------------------
+  // [MemSet Helpers]
+  // --------------------------------------------------------------------------
+
+  //! @brief Generate MemSet32 block.
+  //! @internal
   void _MemSet32(
     PtrRef& dst, Int32Ref& src, SysIntRef& cnt);
+
+  // --------------------------------------------------------------------------
+  // [MemCpy Helpers]
+  // --------------------------------------------------------------------------
 
   //! @brief Generate MemCpy32 block.
   //! @internal
   void _MemCpy32(
     PtrRef& dst, PtrRef& src, SysIntRef& cnt);
+
+  // --------------------------------------------------------------------------
+  // [Composite Helpers]
+  // --------------------------------------------------------------------------
 
   //! @brief Generate Composite32 SSE2 optimized block.
   //! @internal
@@ -119,77 +187,62 @@ struct Generator
     PtrRef& dst, PtrRef& src, SysIntRef& cnt,
     GeneratorOp_Composite32_SSE2& c_op);
 
-  // [Streaming]
+  // --------------------------------------------------------------------------
+  // [Constants Management]
+  // --------------------------------------------------------------------------
 
-  void stream_mov(const Mem& dst, const Register& src);
-  void stream_movq(const Mem& dst, const MMRegister& src);
-  void stream_movdq(const Mem& dst, const XMMRegister& src);
+  //! @brief Tell to generator that we are using constants, it may initialize
+  //! base constants pointer in 64 bit mode.
+  void usingConstants();
 
-  // variables in fomrat cN means constants, index is N - Constants[N]
-  void xmmExpandAlpha_0000AAAA(const XMMRegister& r);
-  void xmmExpandAlpha_AAAAAAAA(const XMMRegister& r);
-  void xmmExpandAlpha_00001AAA(const XMMRegister& r, const XMMRegister& c1);
-  void xmmExpandAlpha_1AAA1AAA(const XMMRegister& r, const XMMRegister& c1);
+  //! @brief Make operand that contains constants address +/- custom 
+  //! @a displacement.
+  Mem getConstantsOperand(SysInt displacement = 0);
 
-  void xmmLerp2(
-    const XMMRegister& dst0, const XMMRegister& src0, const XMMRegister& alpha0);
-  void xmmLerp4(
-    const XMMRegister& dst0, const XMMRegister& src0, const XMMRegister& alpha0,
-    const XMMRegister& dst1, const XMMRegister& src1, const XMMRegister& alpha1);
+  // --------------------------------------------------------------------------
+  // [MMX/SSE Zero Registers]
+  // --------------------------------------------------------------------------
 
-  void xmmComposite2();
+  void usingMMZero();
+  void usingXMMZero();
 
-  // [Code Generation]
+  inline MMRef& mmZero() { return _mmZero; }
+  inline XMMRef& xmmZero() { return _xmmZero; }
 
-  void initRConst();
-
-  // [Constants]
-
-  struct Constants
-  {
-    XMMData Cx00800080008000800080008000800080; // [0]
-    XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [1]
-    
-    XMMData Cx000000FF00FF00FF000000FF00FF00FF; // [2]
-    XMMData Cx00FF000000FF00FF00FF000000FF00FF; // [3]
-    XMMData Cx00FF00FF000000FF00FF00FF000000FF; // [4]
-    XMMData Cx00FF00FF00FF000000FF00FF00FF0000; // [5]
-
-    XMMData Cx00FF00000000000000FF000000000000; // [6]
-    XMMData Cx000000FF00000000000000FF00000000; // [7]
-    XMMData Cx0000000000FF00000000000000FF0000; // [8]
-    XMMData Cx00000000000000FF00000000000000FF; // [9]
-    
-    XMMData CxDemultiply[256];
-  };
-
-  static Constants* constants;
-  static void initConstants();
-
+  // --------------------------------------------------------------------------
   // [Members]
+  // --------------------------------------------------------------------------
 
   //! @brief Assembler stream.
   AsmJit::Compiler* c;
   //! @brief Function.
   AsmJit::Function* f;
+  //! @brief Cpu features, see @c AsmJit::CpuInfo::Feature enumeration.
+  UInt32 features;
   //! @brief Cpu optimizations to use.
   UInt32 optimize;
   //! @brief Tells generator if it should use data prefetching.
   UInt32 prefetch;
   //! @brief Tells generator to use non-thermal hint for store (movntq, movntdq, movntdqa, ...)
   UInt32 nonThermalHint;
-  //! @brief Cpu features, see @c AsmJit::CpuInfo::Feature enumeration.
-  UInt32 features;
   //! @brief Function body flags.
   UInt32 body;
 
-  //! @brief Register that holds address for MMX/SSE constants.
-  PtrRef rconst;
+  //! @brief Register can contain address for MMX/SSE constants (see @c Api::Constants).
+  //!
+  //! @note Under 32 bit mode this register is not used (direct addressing is 
+  //! used instead to save one register and improve performance).
+  PtrRef _rConstantsAddress;
+
+  //! @brief MMX zero register (used for unpacking).
+  MMRef _mmZero;
+
+  //! @brief SSE zero register (used for unpacking).
+  XMMRef _xmmZero;
 
 private:
   // disable copy
-  inline Generator(const Generator& other);
-  inline Generator& operator=(const Generator& other);
+  BLITJIT_DISABLE_COPY(Generator);
 };
 
 //! @}

@@ -71,8 +71,6 @@
 #include "BlitJitCodeManager.h"
 #include "BlitJitDefs.h"
 #include "BlitJitGenerator.h"
-#include "BlitJitLock.h"
-#include "BlitJitMemoryManager.h"
 
 // [Guard]
 #endif // _BLITJIT_H

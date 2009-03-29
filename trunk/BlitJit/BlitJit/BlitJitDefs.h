@@ -32,7 +32,6 @@
 #include <AsmJit/AsmJitCompiler.h>
 
 #include "BlitJitBuild.h"
-#include "BlitJitLock.h"
 
 namespace BlitJit {
 
