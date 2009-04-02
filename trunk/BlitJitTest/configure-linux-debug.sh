@@ -1,5 +1,5 @@
 #!/bin/sh
-mkdir build_linux
-cd build_linux
-
+mkdir build
+cd build
 cmake .. -DCMAKE_BUILD_TYPE=debug -GKDevelop3
+cd ..
