@@ -23,12 +23,13 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 // OTHER DEALINGS IN THE SOFTWARE.
 
-#include "BlitJitApi.h"
-#include "BlitJitGenerator.h"
+// [Dependencies]
+#include <AsmJit/Assembler.h>
+#include <AsmJit/Compiler.h>
+#include <AsmJit/CpuInfo.h>
 
-#include <AsmJit/AsmJitAssembler.h>
-#include <AsmJit/AsmJitCompiler.h>
-#include <AsmJit/AsmJitCpuInfo.h>
+#include "Api.h"
+#include "Generator.h"
 
 using namespace AsmJit;
 

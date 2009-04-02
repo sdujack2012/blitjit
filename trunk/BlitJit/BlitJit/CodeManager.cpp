@@ -24,16 +24,16 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Dependencies]
-#include <AsmJit/AsmJitCompiler.h>
-#include <AsmJit/AsmJitLock.h>
-#include <AsmJit/AsmJitLogger.h>
-#include <AsmJit/AsmJitMemoryManager.h>
+#include <AsmJit/Compiler.h>
+#include <AsmJit/Lock.h>
+#include <AsmJit/Logger.h>
+#include <AsmJit/MemoryManager.h>
 
-#include "BlitJitBuild.h"
-#include "BlitJitApi.h"
-#include "BlitJitCodeManager.h"
-#include "BlitJitDefs.h"
-#include "BlitJitGenerator.h"
+#include "Build.h"
+#include "Api.h"
+#include "CodeManager.h"
+#include "Defs.h"
+#include "Generator.h"
 
 #include <stdio.h>
 

@@ -24,11 +24,11 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Guard]
-#ifndef _BLITJITBUILD_H
-#define _BLITJITBUILD_H
+#ifndef _BLITJIT_BUILD_H
+#define _BLITJIT_BUILD_H
 
 // [Include]
-#include "BlitJitConfig.h"
+#include "Config.h"
 
 // Here should be optional include files that's needed fo successfuly
 // use macros defined here. Remember, BlitJit uses only BlitJit namespace
@@ -38,7 +38,7 @@
 #include <stdlib.h>
 
 // depends to AsmJit
-#include <AsmJit/AsmJitBuild.h>
+#include <AsmJit/Build.h>
 
 // [BlitJit - OS]
 #if !defined(BLITJIT_WINDOWS) && !defined(BLITJIT_POSIX)
@@ -144,4 +144,4 @@ private: \
 #endif // DEBUG
 
 // [Guard]
-#endif // _BLITJITBUILD_H
+#endif // _BLITJIT_BUILD_H

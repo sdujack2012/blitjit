@@ -66,11 +66,11 @@
 
 // [Includes]
 
-#include "BlitJitBuild.h"
-#include "BlitJitApi.h"
-#include "BlitJitCodeManager.h"
-#include "BlitJitDefs.h"
-#include "BlitJitGenerator.h"
+#include "Build.h"
+#include "Api.h"
+#include "CodeManager.h"
+#include "Defs.h"
+#include "Generator.h"
 
 // [Guard]
 #endif // _BLITJIT_H

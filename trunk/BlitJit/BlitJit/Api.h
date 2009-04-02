@@ -24,14 +24,14 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Guard]
-#ifndef _BLITJITAPI_H
-#define _BLITJITAPI_H
+#ifndef _BLITJIT_API_H
+#define _BLITJIT_API_H
 
 // [Dependencies]
-#include <AsmJit/AsmJitUtil.h>
+#include <AsmJit/Util.h>
 
-#include "BlitJitBuild.h"
-#include "BlitJitDefs.h"
+#include "Build.h"
+#include "Defs.h"
 
 namespace BlitJit {
 
@@ -92,4 +92,4 @@ struct BLITJIT_API Api
 } // BlitJit namespace
 
 // [Guard]
-#endif // _BLITJITAPI_H
+#endif // _BLITJIT_API_H

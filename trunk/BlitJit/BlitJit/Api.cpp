@@ -24,7 +24,7 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Dependencies]
-#include "BlitJitApi.h"
+#include "Api.h"
 
 namespace BlitJit {
 
