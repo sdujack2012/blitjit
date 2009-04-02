@@ -24,14 +24,14 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Guard]
-#ifndef _BLITJITDEFS_H
-#define _BLITJITDEFS_H
+#ifndef _BLITJIT_DEFS_H
+#define _BLITJIT_DEFS_H
 
 // [Dependencies]
-#include <AsmJit/AsmJitBuild.h>
-#include <AsmJit/AsmJitCompiler.h>
+#include <AsmJit/Build.h>
+#include <AsmJit/Compiler.h>
 
-#include "BlitJitBuild.h"
+#include "Build.h"
 
 namespace BlitJit {
 
@@ -372,4 +372,4 @@ struct Operation
 } // BlitJit namespace
 
 // [Guard]
-#endif // _BLITJITDEFS_H
+#endif // _BLITJIT_DEFS_H

@@ -24,14 +24,14 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Guard]
-#ifndef _BLITJITGENERATOR_H
-#define _BLITJITGENERATOR_H
+#ifndef _BLITJIT_GENERATOR_H
+#define _BLITJIT_GENERATOR_H
 
 // [Dependencies]
-#include <AsmJit/AsmJitAssembler.h>
-#include <AsmJit/AsmJitCompiler.h>
+#include <AsmJit/Assembler.h>
+#include <AsmJit/Compiler.h>
 
-#include "BlitJitBuild.h"
+#include "Build.h"
 
 namespace BlitJit {
 
@@ -250,4 +250,4 @@ private:
 } // BlitJit namespace
 
 // [Guard]
-#endif // _BLITJITGENERATOR_H
+#endif // _BLITJIT_GENERATOR_H

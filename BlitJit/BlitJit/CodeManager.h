@@ -24,18 +24,18 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Guard]
-#ifndef _BLITJITCODEMANAGER_H
-#define _BLITJITCODEMANAGER_H
+#ifndef _BLITJIT_CODEMANAGER_H
+#define _BLITJIT_CODEMANAGER_H
 
 // [Dependencies]
-#include <AsmJit/AsmJitCompiler.h>
-#include <AsmJit/AsmJitLock.h>
-#include <AsmJit/AsmJitLogger.h>
-#include <AsmJit/AsmJitMemoryManager.h>
+#include <AsmJit/Compiler.h>
+#include <AsmJit/Lock.h>
+#include <AsmJit/Logger.h>
+#include <AsmJit/MemoryManager.h>
 
-#include "BlitJitBuild.h"
-#include "BlitJitDefs.h"
-#include "BlitJitGenerator.h"
+#include "Build.h"
+#include "Defs.h"
+#include "Generator.h"
 
 namespace BlitJit {
 
@@ -89,4 +89,4 @@ struct BLITJIT_API CodeManager
 } // BlitJit namespace
 
 // [Guard]
-#endif // _BLITJITCODEMANAGER_H
+#endif // _BLITJIT_CODEMANAGER_H

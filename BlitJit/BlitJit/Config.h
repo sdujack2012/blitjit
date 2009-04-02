@@ -30,8 +30,8 @@
 // So modify this will by your build system or hand.
 
 // [Guard]
-#ifndef _BLITJITCONFIG_H
-#define _BLITJITCONFIG_H
+#ifndef _BLITJIT_CONFIG_H
+#define _BLITJIT_CONFIG_H
 
 // [BlitJit - OS]
 // #define BLITJIT_WINDOWS
@@ -54,4 +54,4 @@
 // #define BLITJIT_ASSERT(exp) do { if (!(exp)) BLITJIT_CRASH(); } while(0)
 
 // [Guard]
-#endif // _BLITJITCONFIG_H
+#endif // _BLITJIT_CONFIG_H
