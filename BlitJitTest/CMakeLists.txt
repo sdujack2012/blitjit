@@ -1,75 +1,16 @@
 cmake_minimum_required(VERSION 2.6)
 
-Project(blittest C CXX)
-
 Set(ASMJIT_DIR "../AsmJit")
 Set(BLITJIT_DIR "../BlitJit")
 
-Set(ASMJIT_BASE_SOURCES
-  ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitLock.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitLogger.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitLoggerX86X64.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitLoggerX86X64Dump.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitMemoryManager.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitUtil.cpp
-  ${ASMJIT_DIR}/AsmJit/AsmJitVirtualMemory.cpp
-)
+Include(${ASMJIT_DIR}/CMakeLists.txt)
+Include(${BLITJIT_DIR}/CMakeLists.txt)
 
-Set(ASMJIT_BASE_HEADERS
-  ${ASMJIT_DIR}/AsmJit/AsmJit.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitAssembler.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitAssemblerX86X64.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitBuild.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitConfig.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitCpuInfo.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitDefs.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitDefsX86X64.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitLock.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitLogger.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitLoggerX86X64.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitMemoryManager.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitSerializer.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitSerializerX86X64.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitUtil.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitVirtualMemory.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitWarningsPop.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitWarningsPush.h
-)
-
-Set(ASMJIT_COMPILER_SOURCES
-  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.cpp
-)
-
-Set(ASMJIT_COMPILER_HEADERS
-  ${ASMJIT_DIR}/AsmJit/AsmJitCompiler.h
-  ${ASMJIT_DIR}/AsmJit/AsmJitCompilerX86X64.h
-)
-
-Set(BLITJIT_SOURCES
-  ${BLITJIT_DIR}/BlitJit/BlitJitApi.cpp
-  ${BLITJIT_DIR}/BlitJit/BlitJitCodeManager.cpp
-  ${BLITJIT_DIR}/BlitJit/BlitJitDefs.cpp
-  ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.cpp
-)
-
-Set(BLITJIT_HEADERS
-  ${BLITJIT_DIR}/BlitJit/BlitJit.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitApi.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitBuild.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitCodeManager.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitConfig.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitDefs.h
-  ${BLITJIT_DIR}/BlitJit/BlitJitGenerator.h
-)
-
-Include_Directories(${ASMJIT_DIR})
-Include_Directories(${BLITJIT_DIR})
+Project(blittest C CXX)
 
 # Build AsmJit statically
 Add_Definitions(-DASMJIT_API=)
+Add_Definitions(-DBLITJIT_API=)
 
 If (WIN32)
   Link_Libraries(gdi32 msimg32)
@@ -90,11 +31,12 @@ Link_Libraries (${SDLIMAGE_LIBRARY})
 Include_Directories(${SDLIMAGE_INCLUDE_DIR})
 
 If(NOT WIN32)
-Link_Libraries(cairo)
-Include_Directories(/usr/include/cairo)
+  Link_Libraries(cairo)
+  Include_Directories(/usr/include/cairo)
 EndIf(NOT WIN32)
 
-Add_Executable(test src/test.cpp
-  ${ASMJIT_BASE_SOURCES} ${ASMJIT_BASE_HEADERS}
-  ${ASMJIT_COMPILER_SOURCES} ${ASMJIT_COMPILER_HEADERS}
-  ${BLITJIT_SOURCES} ${BLITJIT_HEADERS})
+Add_Library(AsmJit ${ASMJIT_SOURCES} ${ASMJIT_HEADERS})
+Add_Library(BlitJit ${BLITJIT_SOURCES} ${BLITJIT_HEADERS})
+
+Add_Executable(test src/test.cpp)
+Target_Link_Libraries(test AsmJit BlitJit)
