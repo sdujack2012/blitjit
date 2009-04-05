@@ -32,9 +32,17 @@
 //! @mainpage
 //!
 
-//! @defgroup BlitJit_Config BlitJit configuration.
+//! @defgroup BlitJit_Api API declared to be public.
+//!
+//! Contains small subset of API declared to be public and easy to use.
+
+//! @defgroup BlitJit_Config Configuration.
 //!
 //! Contains macros that can be redefined to fit to any project.
+
+//! @defgroup BlitJit_Generator Generator.
+//!
+//! Generator is heart of BlitJit library.
 
 //! @addtogroup BlitJit_Config
 //! @{
@@ -69,7 +77,6 @@
 #include "Build.h"
 #include "Api.h"
 #include "CodeManager.h"
-#include "Defs.h"
 #include "Generator.h"
 
 // [Guard]

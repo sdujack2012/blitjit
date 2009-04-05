@@ -62,32 +62,32 @@ const PixelFormat Api::pixelFormats[PixelFormat::Count] =
 // [BlitJit::Api - Operators]
 // ============================================================================
 
-const Operation Api::operations[Operation::Count] = 
+const Operator Api::operations[Operator::Count] = 
 {
   // Name                 | Id                             | S, D Pixel  | S, D Alpha
-  { "CompositeSrc"        , Operation::CompositeSrc        , true , true , false, false  },
-  { "CompositeDest"       , Operation::CompositeDest       , false, false, true , true   },
-  { "CompositeOver"       , Operation::CompositeOver       , true , true , true , true   },
-  { "CompositeOverReverse", Operation::CompositeOverReverse, true , true , true , true   },
-  { "CompositeIn"         , Operation::CompositeIn         , true , true , true , true   },
-  { "CompositeInReverse"  , Operation::CompositeInReverse  , true , true , true , true   },
-  { "CompositeOut"        , Operation::CompositeOut        , true , true , true , true   },
-  { "CompositeOutReverse" , Operation::CompositeOutReverse , true , true , true , true   },
-  { "CompositeAtop"       , Operation::CompositeAtop       , true , true , true , true   },
-  { "CompositeAtopReverse", Operation::CompositeAtopReverse, true , true , true , true   },
-  { "CompositeXor"        , Operation::CompositeXor        , true , true , true , true   },
-  { "CompositeClear"      , Operation::CompositeClear      , false, false, false, false  },
-  { "CompositeAdd"        , Operation::CompositeAdd        , true , true , true , true   },
-  { "CompositeSubtract"   , Operation::CompositeSubtract   , true , true , true , true   },
-  { "CompositeMultiply"   , Operation::CompositeMultiply   , true , true , true , true   },
-  { "CompositeScreen"     , Operation::CompositeScreen     , true , true , true , true   },
-  { "CompositeDarken"     , Operation::CompositeDarken     , true , true , true , true   },
-  { "CompositeLighten"    , Operation::CompositeLighten    , true , true , true , true   },
-  { "CompositeDifference" , Operation::CompositeDifference , true , true , true , true   },
-  { "CompositeExclusion"  , Operation::CompositeExclusion  , true , true , true , true   },
-  { "CompositeInvert"     , Operation::CompositeInvert     , true , true , true , true   },
-  { "CompositeInvertRgb"  , Operation::CompositeInvertRgb  , true , true , true , true   },
-  { "CompositeSaturate"   , Operation::CompositeSaturate   , true , true , true , true   }
+  { "CompositeSrc"        , Operator::CompositeSrc        , true , true , false, false  },
+  { "CompositeDest"       , Operator::CompositeDest       , false, false, true , true   },
+  { "CompositeOver"       , Operator::CompositeOver       , true , true , true , true   },
+  { "CompositeOverReverse", Operator::CompositeOverReverse, true , true , true , true   },
+  { "CompositeIn"         , Operator::CompositeIn         , true , true , true , true   },
+  { "CompositeInReverse"  , Operator::CompositeInReverse  , true , true , true , true   },
+  { "CompositeOut"        , Operator::CompositeOut        , true , true , true , true   },
+  { "CompositeOutReverse" , Operator::CompositeOutReverse , true , true , true , true   },
+  { "CompositeAtop"       , Operator::CompositeAtop       , true , true , true , true   },
+  { "CompositeAtopReverse", Operator::CompositeAtopReverse, true , true , true , true   },
+  { "CompositeXor"        , Operator::CompositeXor        , true , true , true , true   },
+  { "CompositeClear"      , Operator::CompositeClear      , false, false, false, false  },
+  { "CompositeAdd"        , Operator::CompositeAdd        , true , true , true , true   },
+  { "CompositeSubtract"   , Operator::CompositeSubtract   , true , true , true , true   },
+  { "CompositeMultiply"   , Operator::CompositeMultiply   , true , true , true , true   },
+  { "CompositeScreen"     , Operator::CompositeScreen     , true , true , true , true   },
+  { "CompositeDarken"     , Operator::CompositeDarken     , true , true , true , true   },
+  { "CompositeLighten"    , Operator::CompositeLighten    , true , true , true , true   },
+  { "CompositeDifference" , Operator::CompositeDifference , true , true , true , true   },
+  { "CompositeExclusion"  , Operator::CompositeExclusion  , true , true , true , true   },
+  { "CompositeInvert"     , Operator::CompositeInvert     , true , true , true , true   },
+  { "CompositeInvertRgb"  , Operator::CompositeInvertRgb  , true , true , true , true   },
+  { "CompositeSaturate"   , Operator::CompositeSaturate   , true , true , true , true   }
 };
 
 // ============================================================================
