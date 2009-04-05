@@ -32,7 +32,6 @@
 #include "Build.h"
 #include "Api.h"
 #include "CodeManager.h"
-#include "Defs.h"
 #include "Generator.h"
 
 #include <stdio.h>
@@ -41,8 +40,8 @@ namespace BlitJit {
 
 static inline SysUInt calcPfPfOp(SysUInt dId, SysUInt sId, SysUInt oId)
 {
-  return (dId * Operation::Count * PixelFormat::Count +
-          sId * Operation::Count +
+  return (dId * Operator::Count * PixelFormat::Count +
+          sId * Operator::Count +
           oId);
 }
 
@@ -81,16 +80,14 @@ FillSpanFn CodeManager::getFillSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     // If function was generated within non locked time
     if ((fn = _fillSpan[pos]) != NULL) return fn;
 
-    AsmJit::Compiler c;
-    configureCompiler(&c);
-
-    Generator gen(&c);
+    Generator gen;
+    configureCompiler(gen.c);
 
     gen.genFillSpan(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId], 
       Api::operations[oId]);
-    fn = AsmJit::function_cast<FillSpanFn>(c.make());
+    fn = AsmJit::function_cast<FillSpanFn>(gen.c->make());
 
     _fillSpan[pos] = fn;
     return fn;
@@ -112,16 +109,14 @@ FillRectFn CodeManager::getFillRect(UInt32 dId, UInt32 sId, UInt32 oId)
     // If function was generated within non locked time
     if ((fn = _fillRect[pos]) != NULL) return fn;
 
-    AsmJit::Compiler c;
-    configureCompiler(&c);
-
-    Generator gen(&c);
+    Generator gen;
+    configureCompiler(gen.c);
 
     gen.genFillRect(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId], 
       Api::operations[oId]);
-    fn = AsmJit::function_cast<FillRectFn>(c.make());
+    fn = AsmJit::function_cast<FillRectFn>(gen.c->make());
 
     _fillRect[pos] = fn;
     return fn;
@@ -143,16 +138,14 @@ BlitSpanFn CodeManager::getBlitSpan(UInt32 dId, UInt32 sId, UInt32 oId)
     // If function was generated within non locked time
     if ((fn = _blitSpan[pos]) != NULL) return fn;
 
-    AsmJit::Compiler c;
-    configureCompiler(&c);
-
-    Generator gen(&c);
+    Generator gen;
+    configureCompiler(gen.c);
 
     gen.genBlitSpan(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId],
       Api::operations[oId]);
-    fn = AsmJit::function_cast<BlitSpanFn>(c.make());
+    fn = AsmJit::function_cast<BlitSpanFn>(gen.c->make());
 
     _blitSpan[pos] = fn;
     return fn;
@@ -174,16 +167,14 @@ BlitRectFn CodeManager::getBlitRect(UInt32 dId, UInt32 sId, UInt32 oId)
     // If function was generated within non locked time
     if ((fn = _blitRect[pos]) != NULL) return fn;
 
-    AsmJit::Compiler c;
-    configureCompiler(&c);
-
-    Generator gen(&c);
+    Generator gen;
+    configureCompiler(gen.c);
 
     gen.genBlitRect(
       Api::pixelFormats[dId],
       Api::pixelFormats[sId], 
       Api::operations[oId]);
-    fn = AsmJit::function_cast<BlitRectFn>(c.make());
+    fn = AsmJit::function_cast<BlitRectFn>(gen.c->make());
 
     _blitRect[pos] = fn;
     return fn;

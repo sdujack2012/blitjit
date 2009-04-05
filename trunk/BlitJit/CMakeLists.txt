@@ -13,8 +13,8 @@ EndIf(NOT BLITJIT_DIR)
 Set(BLITJIT_SOURCES
   ${BLITJIT_DIR}/BlitJit/Api.cpp
   ${BLITJIT_DIR}/BlitJit/CodeManager.cpp
-  ${BLITJIT_DIR}/BlitJit/Defs.cpp
   ${BLITJIT_DIR}/BlitJit/Generator.cpp
+  ${BLITJIT_DIR}/BlitJit/GeneratorPrivate.cpp
 )
 
 # BlitJit C++ headers
@@ -24,8 +24,8 @@ Set(BLITJIT_HEADERS
   ${BLITJIT_DIR}/BlitJit/Build.h
   ${BLITJIT_DIR}/BlitJit/CodeManager.h
   ${BLITJIT_DIR}/BlitJit/Config.h
-  ${BLITJIT_DIR}/BlitJit/Defs.h
   ${BLITJIT_DIR}/BlitJit/Generator.h
+  ${BLITJIT_DIR}/BlitJit/GeneratorPrivate.h
 )
 
 # Include AsmJit to be able to use #include <AsmJit/...>
@@ -37,13 +37,14 @@ If(NOT WIN32)
 EndIf(NOT WIN32)
 
 # Debugging support is indicated through _DEBUG macro, add it if needed
-If(${CMAKE_BUILD_TYPE} MATCHES "debug")
+If(${CMAKE_BUILD_TYPE} MATCHES "Debug")
   Add_Definitions(-D_DEBUG)
-EndIF(${CMAKE_BUILD_TYPE} MATCHES "debug")
+EndIF(${CMAKE_BUILD_TYPE} MATCHES "Debug")
 
 # Build BlitJit shared library?
 If(BLITJIT_BUILD_LIBRARY)
   Add_Library(BlitJit SHARED ${BLITJIT_SOURCES} ${BLITJIT_HEADERS})
+  Target_Link_Libraries(BlitJit AsmJit)
 
   Install(TARGETS BlitJit DESTINATION "lib")
   

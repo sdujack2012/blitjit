@@ -24,72 +24,558 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 
 // [Dependencies]
-#include <AsmJit/Assembler.h>
 #include <AsmJit/Compiler.h>
 #include <AsmJit/CpuInfo.h>
 
 #include "Api.h"
 #include "Generator.h"
+#include "GeneratorPrivate.h"
+
+#include <new>
+
+// Label groups used in generator:
+// - L_Align - Align loop labels
+// - L_Main - Main loop labels
+// - L_Tail - Tail loop labels
+//
+// Label subgroups used in generator:
+// - ...Entry - Before previous label counter cleanup (see the code)
+// - ...Prepare - Before loop conditional (after cleanup)
+// - ...Loop - Before main loop instruction stream
+// - ...End - End of loop or code block
 
 using namespace AsmJit;
 
 namespace BlitJit {
 
 // ============================================================================
-// [BlitJit::Macros]
+// [BlitJit::OutsideBlock]
 // ============================================================================
 
-#define DISPCONST(__cname__) \
-  (SysInt)( (UInt8 *)&Api::constants->__cname__ - (UInt8 *)Api::constants )
-
-#define GETCONST(__generator__, __name__) \
-  __generator__->getConstantsOperand(DISPCONST(__name__))
-
-// ============================================================================
-// [BlitJit::GeneratorOp]
-// ============================================================================
-
-struct GeneratorOp
+struct OutsideBlock
 {
-  GeneratorOp(Generator* g, Compiler* c, Function* f) : g(g), c(c), f(f) {}
-  virtual ~GeneratorOp() {}
+  OutsideBlock(Compiler* c) : c(c)
+  {
+    _savedState = c->saveState();
+    _savedCurrent = c->current();
 
-  virtual void init() {};
-  virtual void free() {};
+    c->setCurrent(c->lastEmittable());
+  }
 
-  Generator* g;
+  ~OutsideBlock()
+  {
+    c->setState(_savedState);
+    c->setCurrent(_savedCurrent);
+  }
+
+  inline State* savedState() const { return _savedState; }
+
+private:
   Compiler* c;
-  Function* f;
+  State* _savedState;
+  Emittable* _savedCurrent;
 };
 
 // ============================================================================
-// [BlitJit::GeneratorOpCompositeOp32]
+// [BlitJit::MemSetModule_32]
 // ============================================================================
 
-//! @brief Implementation of compositing operations for SSE2 instruction set.
-struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
+struct BLITJIT_HIDDEN MemSetModule_32 : public FillModule
+{
+  MemSetModule_32(
+    Generator* g,
+    const PixelFormat* pf,
+    const Operator* op);
+  virtual ~MemSetModule_32();
+
+  virtual void init(PtrRef& _src, const PixelFormat* pfSrc);
+  virtual void free();
+
+  virtual void processPixelsPtr(
+    const AsmJit::PtrRef& dst,
+    SysInt count,
+    SysInt displacement,
+    UInt32 kind,
+    UInt32 flags);
+
+  SysIntRef src;
+  MMRef srcmm;
+  XMMRef srcxmm;
+};
+
+MemSetModule_32::MemSetModule_32(
+  Generator* g,
+  const PixelFormat* pf,
+  const Operator* op) :
+    FillModule(g, pf, op)
+{
+  _prefetchDst = false;
+  _prefetchSrc = false;
+
+  src.use(c->newVariable(VARIABLE_TYPE_SYSINT));
+
+  switch (g->optimization())
+  {
+    case Api::OptimizeX86:
+      _maxPixelsPerLoop = 4;
+      break;
+    case Api::OptimizeMMX:
+      srcmm.use(c->newVariable(VARIABLE_TYPE_MM));
+      _maxPixelsPerLoop = 16;
+      break;
+    case Api::OptimizeSSE2:
+      srcxmm.use(c->newVariable(VARIABLE_TYPE_XMM));
+      _maxPixelsPerLoop = 32;
+      break;
+  }
+}
+
+MemSetModule_32::~MemSetModule_32()
+{
+}
+
+void MemSetModule_32::init(PtrRef& _src, const PixelFormat* pfSrc)
+{
+  c->mov(src.x32(), dword_ptr(_src.c()));
+  // TODO
+
+  switch (g->optimization())
+  {
+    case Api::OptimizeMMX:
+      c->movd(srcmm.x(), src.c32());
+      c->pshufw(srcmm.r(), srcmm.r(), mm_shuffle(0, 1, 0, 1));
+      break;
+    case Api::OptimizeSSE2:
+      c->movd(srcxmm.x(), src.c32());
+      c->pshufd(srcxmm.r(), srcxmm.r(), mm_shuffle(0, 0, 0, 0));
+      break;
+  }
+}
+
+void MemSetModule_32::free()
+{
+}
+
+void MemSetModule_32::processPixelsPtr(
+  const AsmJit::PtrRef& dst,
+  SysInt count,
+  SysInt displacement,
+  UInt32 kind,
+  UInt32 flags)
+{
+  StateRef state(c->saveState());
+
+  bool nt = g->nonThermalHint();
+
+  switch (g->optimization())
+  {
+    case Api::OptimizeX86:
+    {
+      SysInt i = count;
+
+      do {
+#if defined(ASMJIT_X64)
+        if (i >= 2)
+        {
+          g->_StoreMov(qword_ptr(dst.c(), displacement), src.c64(), nt);
+
+          displacement += 8;
+          i -= 2;
+        }
+        else
+        {
+#endif // ASMJIT_X64
+          g->_StoreMov(dword_ptr(dst.c(), displacement), src.c32(), nt);
+
+          displacement += 4;
+          i--;
+#if defined(ASMJIT_X64)
+        }
+#endif // ASMJIT_X64
+      } while (i > 0);
+      break;
+    }
+
+    case Api::OptimizeMMX:
+    {
+      SysInt i = count;
+
+      do {
+        if (i >= 2)
+        {
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement), srcmm.c(), nt);
+
+          displacement += 8;
+          i -= 2;
+        }
+        else
+        {
+          g->_StoreMov(dword_ptr(dst.c(), displacement), src.c32(), nt);
+
+          displacement += 4;
+          i--;
+        }
+      } while (i > 0);
+      break;
+    }
+
+    case Api::OptimizeSSE2:
+    {
+      SysInt i = count;
+      bool aligned = (flags & DstAligned) != 0;
+
+      do {
+        if (i >= 4)
+        {
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement), srcxmm.c(), nt, aligned);
+
+          displacement += 16;
+          i -= 4;
+        }
+        else
+        {
+          g->_StoreMov(dword_ptr(dst.c(), displacement), src.c32(), nt);
+
+          displacement += 4;
+          i--;
+        }
+      } while (i > 0);
+      break;
+    }
+  }
+}
+
+// ============================================================================
+// [BlitJit::MemCpyModule_32]
+// ============================================================================
+
+struct BLITJIT_HIDDEN MemCpyModule_32 : public CompositeModule
+{
+  MemCpyModule_32(
+    Generator* g,
+    const PixelFormat* pfDst,
+    const PixelFormat* pfSrc,
+    const Operator* op);
+  virtual ~MemCpyModule_32();
+
+  virtual void processPixelsPtr(
+    const AsmJit::PtrRef& dst,
+    const AsmJit::PtrRef& src,
+    SysInt count,
+    SysInt displacement,
+    UInt32 kind,
+    UInt32 flags);
+};
+
+MemCpyModule_32::MemCpyModule_32(
+  Generator* g,
+  const PixelFormat* pfDst,
+  const PixelFormat* pfSrc,
+  const Operator* op) :
+  CompositeModule(g, pfDst, pfSrc, op)
+{
+  _prefetchDst = false;
+  _prefetchSrc = true;
+
+  switch (g->optimization())
+  {
+    case Api::OptimizeX86:
+      _maxPixelsPerLoop = 4;
+      break;
+    case Api::OptimizeMMX:
+      _maxPixelsPerLoop = 16;
+      break;
+    case Api::OptimizeSSE2:
+      _maxPixelsPerLoop = 32;
+      break;
+  }
+}
+
+MemCpyModule_32::~MemCpyModule_32()
+{
+}
+
+void MemCpyModule_32::processPixelsPtr(
+  const AsmJit::PtrRef& dst,
+  const AsmJit::PtrRef& src,
+  SysInt count,
+  SysInt displacement,
+  UInt32 kind,
+  UInt32 flags)
+{
+  StateRef state(c->saveState());
+
+  bool nt = g->nonThermalHint();
+  bool srcAligned = (flags & SrcAligned) != 0;
+  bool dstAligned = (flags & DstAligned) != 0;
+
+  switch (g->optimization())
+  {
+    case Api::OptimizeX86:
+    {
+      SysInt i = count;
+
+      do {
+#if defined(ASMJIT_X64)
+        if (i >= 2)
+        {
+          Int64Ref t(c->newVariable(VARIABLE_TYPE_INT64));
+
+          g->_LoadMov(t.x(), qword_ptr(src.c(), displacement));
+          g->_StoreMov(qword_ptr(dst.c(), displacement), t.c(), nt);
+
+          displacement += 8;
+          i -= 2;
+        }
+        else
+        {
+#endif // ASMJIT_X64
+          Int32Ref t(c->newVariable(VARIABLE_TYPE_INT32));
+
+          g->_LoadMov(t.x(), dword_ptr(src.c(), displacement));
+          g->_StoreMov(dword_ptr(dst.c(), displacement), t.c(), nt);
+
+          displacement += 4;
+          i--;
+#if defined(ASMJIT_X64)
+        }
+#endif // ASMJIT_X64
+      } while (i > 0);
+      break;
+    }
+
+    case Api::OptimizeMMX:
+    {
+      SysInt i = count;
+
+      do {
+        if (i >= 8)
+        {
+          MMRef t0(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t1(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t2(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t3(c->newVariable(VARIABLE_TYPE_MM));
+
+          g->_LoadMovQ(t0.x(), qword_ptr(src.c(), displacement));
+          g->_LoadMovQ(t1.x(), qword_ptr(src.c(), displacement + 8));
+          g->_LoadMovQ(t2.x(), qword_ptr(src.c(), displacement + 16));
+          g->_LoadMovQ(t3.x(), qword_ptr(src.c(), displacement + 24));
+
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement), t0.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 8), t1.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 16), t2.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 24), t3.c(), nt);
+
+          displacement += 32;
+          i -= 8;
+        }
+        else if (i >= 4)
+        {
+          MMRef t0(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t1(c->newVariable(VARIABLE_TYPE_MM));
+
+          g->_LoadMovQ(t0.x(), qword_ptr(src.c(), displacement));
+          g->_LoadMovQ(t1.x(), qword_ptr(src.c(), displacement + 8));
+
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement), t0.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 8), t1.c(), nt);
+
+          displacement += 16;
+          i -= 4;
+        }
+        else if (i >= 2)
+        {
+          MMRef t(c->newVariable(VARIABLE_TYPE_MM));
+
+          g->_LoadMovQ(t.x(), qword_ptr(src.c(), displacement));
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement), t.c(), nt);
+
+          displacement += 8;
+          i -= 2;
+        }
+        else
+        {
+          Int32Ref t(c->newVariable(VARIABLE_TYPE_INT32));
+
+          g->_LoadMov(t.x(), dword_ptr(src.c(), displacement));
+          g->_StoreMov(dword_ptr(dst.c(), displacement), t.c(), nt);
+
+          displacement += 4;
+          i--;
+        }
+      } while (i > 0);
+      break;
+    }
+
+    case Api::OptimizeSSE2:
+    {
+      SysInt i = count;
+
+      do {
+        if (i >= 16)
+        {
+          XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM));
+
+          g->_LoadMovDQ(t0.x(), dqword_ptr(src.c(), displacement +  0), srcAligned);
+          g->_LoadMovDQ(t1.x(), dqword_ptr(src.c(), displacement + 16), srcAligned);
+          g->_LoadMovDQ(t2.x(), dqword_ptr(src.c(), displacement + 32), srcAligned);
+          g->_LoadMovDQ(t3.x(), dqword_ptr(src.c(), displacement + 48), srcAligned);
+
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement +  0), t0.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 16), t1.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 32), t2.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 48), t3.c(), nt, dstAligned);
+
+          displacement += 64;
+          i -= 16;
+        }
+        else if (i >= 8)
+        {
+          XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
+
+          g->_LoadMovDQ(t0.x(), dqword_ptr(src.c(), displacement +  0), srcAligned);
+          g->_LoadMovDQ(t1.x(), dqword_ptr(src.c(), displacement + 16), srcAligned);
+
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement +  0), t0.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 16), t1.c(), nt, dstAligned);
+
+          displacement += 32;
+          i -= 8;
+        }
+        else if (i >= 4)
+        {
+          XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
+
+          g->_LoadMovDQ(t0.x(), dqword_ptr(src.c(), displacement), srcAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement), t0.c(), nt, dstAligned);
+
+          displacement += 16;
+          i -= 4;
+        }
+        else
+        {
+          Int32Ref t(c->newVariable(VARIABLE_TYPE_INT32));
+
+          g->_LoadMov(t.x(), dword_ptr(src.c(), displacement));
+          g->_StoreMov(dword_ptr(dst.c(), displacement), t.c(), nt);
+
+          displacement += 4;
+          i--;
+        }
+      } while (i > 0);
+      break;
+    }
+  }
+}
+
+// ============================================================================
+// [BlitJit::FillModule_32_SSE2]
+// ============================================================================
+
+struct BLITJIT_HIDDEN FillModule_32_SSE2 : public FillModule
+{
+  FillModule_32_SSE2(
+    Generator* g,
+    const PixelFormat* pf,
+    const Operator* op);
+  virtual ~FillModule_32_SSE2();
+
+  virtual void init(PtrRef& _src, const PixelFormat* pfSrc);
+  virtual void free();
+
+  virtual void processPixelsPtr(
+    const AsmJit::PtrRef& dst,
+    SysInt count,
+    SysInt displacement,
+    UInt32 kind,
+    UInt32 flags);
+};
+
+FillModule_32_SSE2::FillModule_32_SSE2(
+  Generator* g,
+  const PixelFormat* pf,
+  const Operator* op) :
+    FillModule(g, pf, op)
+{
+  // First look at NOPs
+  if (op->id() == Operator::CompositeDest)
+  {
+    _isNop = true;
+    return;
+  }
+
+  _maxPixelsPerLoop = 1;
+  _complexity = Complex;
+}
+
+FillModule_32_SSE2::~FillModule_32_SSE2()
+{
+}
+
+void FillModule_32_SSE2::init(PtrRef& _src, const PixelFormat* pfSrc)
+{
+}
+
+void FillModule_32_SSE2::free()
+{
+}
+
+void FillModule_32_SSE2::processPixelsPtr(
+  const AsmJit::PtrRef& dst,
+  SysInt count,
+  SysInt displacement,
+  UInt32 kind,
+  UInt32 flags)
+{
+}
+
+// ============================================================================
+// [BlitJit::CompositeModule_32_SSE2]
+// ============================================================================
+
+struct BLITJIT_HIDDEN CompositeModule_32_SSE2 : public CompositeModule
 {
   // --------------------------------------------------------------------------
   // [Construction / Destruction]
   // --------------------------------------------------------------------------
 
-  GeneratorOp_Composite32_SSE2(Generator* g, Compiler* c, Function* f, UInt32 op) : GeneratorOp(g, c, f), op(op), maxPixelsInLoop(0)
+  CompositeModule_32_SSE2(
+    Generator* g,
+    const PixelFormat* pfDst,
+    const PixelFormat* pfSrc,
+    const Operator* op) :
+    CompositeModule(g, pfDst, pfSrc, op)
   {
-    maxPixelsInLoop = 4;
+    // First look at NOPs
+    if (op->id() == Operator::CompositeDest)
+    {
+      _isNop = true;
+      return;
+    }
 
-    if (op == Operation::CompositeSubtract  ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeMultiply  ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeScreen    ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeDarken    ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeLighten   ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeDifference) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeExclusion ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeInvert    ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeInvertRgb ) maxPixelsInLoop = 2;
-    if (op == Operation::CompositeSaturate  ) maxPixelsInLoop = 1;
+    _maxPixelsPerLoop = 4;
+    _complexity = Complex;
+
+    switch (op->id())
+    {
+      case Operator::CompositeSubtract  : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeMultiply  : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeScreen    : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeDarken    : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeLighten   : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeDifference: _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeExclusion : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeInvert    : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeInvertRgb : _maxPixelsPerLoop = 2; break;
+      case Operator::CompositeSaturate  : _maxPixelsPerLoop = 1; break;
+    }
   }
 
-  virtual ~GeneratorOp_Composite32_SSE2() {}
+  virtual ~CompositeModule_32_SSE2() {}
 
   enum RawFlags
   {
@@ -109,37 +595,129 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
   {
     g->usingConstants();
     g->usingXMMZero();
-
-    c0x0080.use(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    c->movdqa(c0x0080.r(), GETCONST(g, Cx00800080008000800080008000800080));
+    g->usingXMM0080();
   }
 
   virtual void free()
   {
   }
 
+  virtual void processPixelsPtr(
+    const AsmJit::PtrRef& dst,
+    const AsmJit::PtrRef& src,
+    SysInt count,
+    SysInt displacement,
+    UInt32 kind,
+    UInt32 flags)
+  {
+    StateRef state(c->saveState());
+
+    // These are needed in all cases
+    XMMRef dstpix0(c->newVariable(VARIABLE_TYPE_XMM, 5));
+    XMMRef srcpix0(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+    bool srcAligned = (flags & SrcAligned) != 0;
+    bool dstAligned = (flags & DstAligned) != 0;
+
+    switch (count)
+    {
+      case 1: // Process 1 pixel
+      {
+        c->movd(srcpix0.x(), ptr(src.r(), displacement));
+        c->movd(dstpix0.x(), ptr(dst.r(), displacement));
+        processPixelsRaw(dstpix0.r(), srcpix0.r(), false);
+        c->movd(ptr(dst.r(), displacement), dstpix0.r());
+        break;
+      }
+      case 2: // Process 2 pixels
+      {
+        c->movq(srcpix0.x(), ptr(src.r(), displacement));
+        c->movq(dstpix0.x(), ptr(dst.r(), displacement));
+        processPixelsRaw(dstpix0.r(), srcpix0.r(), true);
+        c->movq(ptr(dst.r(), displacement), dstpix0.r());
+        break;
+      }
+      case 4: // Process 4 pixels
+      {
+        // Need more variables to successfully parallelize instructions
+        XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+        Label* L_LocalLoopExit = c->newLabel();
+
+        g->_LoadMovDQ(srcpix0.x(), ptr(src.r(), displacement), srcAligned);
+
+        // This can improve speed by skipping pixels of zero or full alpha
+        if (op->id() == Operator::CompositeOver)
+        {
+          Label* L_1 = c->newLabel();
+
+          c->pcmpeqb(dstpix0.r(), dstpix0.r());
+          c->pxor(dstpix1.r(), dstpix1.r());
+
+          c->pcmpeqb(dstpix0.r(), srcpix0.r());
+          c->pcmpeqb(dstpix1.r(), srcpix0.r());
+
+          {
+            SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
+            SysIntRef k(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
+
+            c->pmovmskb(k.r32(), dstpix0.r());
+            c->pmovmskb(t.r32(), dstpix1.r());
+
+            c->and_(k.r32(), 0x8888);
+            c->cmp(t.r32(), 0xFFFF);
+            c->jz(L_LocalLoopExit);
+
+            c->cmp(k.r32(), 0x8888);
+            c->jnz(L_1);
+          }
+
+          g->_StoreMovDQ(ptr(dst.r(), displacement), srcpix0.r(), false, dstAligned);
+          c->jmp(L_LocalLoopExit);
+
+          c->bind(L_1);
+        }
+
+        g->_LoadMovDQ(dstpix0.x(), ptr(dst.r(), displacement), dstAligned);
+
+        // Source and destination is in srcpix0 and dstpix0, also we want to
+        // pack destination to dstpix0.
+        processPixelsRaw_4(dstpix0.r(), srcpix0.r(), dstpix1.r(), srcpix1.r(),
+          CompositeModule_32_SSE2::Raw4UnpackFromSrc0 |
+          CompositeModule_32_SSE2::Raw4UnpackFromDst0 |
+          CompositeModule_32_SSE2::Raw4PackToDst0);
+
+        g->_StoreMovDQ(ptr(dst.r(), displacement), dstpix0.r(), false, dstAligned);
+
+        c->bind(L_LocalLoopExit);
+        break;
+      }
+    }
+  }
+
   // --------------------------------------------------------------------------
-  // [doPixelUnpacked]
+  // [processPixelsRaw]
   // --------------------------------------------------------------------------
 
-  void doPixelRaw(
+  void processPixelsRaw(
     const XMMRegister& dst0, const XMMRegister& src0,
     bool two)
   {
-    switch (op)
+    switch (op->id())
     {
-      case Operation::CompositeSrc:
+      case Operator::CompositeSrc:
         // copy operation (optimized in frontends and also by Generator itself)
         c->movdqa(dst0, src0);
         return;
-      case Operation::CompositeDest:
+      case Operator::CompositeDest:
         // no operation (optimized in frontends and also by Generator itself)
         return;
-      case Operation::CompositeClear:
+      case Operator::CompositeClear:
         // clear operation (optimized in frontends and also by Generator itself)
         c->pxor(dst0, dst0);
         return;
-      case Operation::CompositeAdd:
+      case Operator::CompositeAdd:
         // add operation (not needs to be unpacked and packed)
         c->paddusb(dst0, src0);
         return;
@@ -151,12 +729,12 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
     c->punpcklbw(src0, g->xmmZero().r());
     c->punpcklbw(dst0, g->xmmZero().r());
 
-    doPixelUnpacked(dst0, src0, two);
+    processPixelsUnpacked(dst0, src0, two);
 
     c->packuswb(dst0, dst0);
   }
 
-  void doPixelRaw_4(
+  void processPixelsRaw_4(
     const XMMRegister& dst0, const XMMRegister& src0,
     const XMMRegister& dst1, const XMMRegister& src1,
     UInt32 flags)
@@ -186,7 +764,7 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       c->punpcklbw(dst1, g->xmmZero().r());
     }
 
-    doPixelUnpacked_4(dst0, src0, dst1, src1);
+    processPixelsUnpacked_4(dst0, src0, dst1, src1);
 
     if (flags & Raw4PackToDst0)
     {
@@ -200,23 +778,23 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
   }
 
   // --------------------------------------------------------------------------
-  // [doPixelUnpacked]
+  // [processPixelsUnpacked]
   // --------------------------------------------------------------------------
 
-  void doPixelUnpacked(
+  void processPixelsUnpacked(
     const XMMRegister& dst0, const XMMRegister& src0, bool two)
   {
-    XMMRef _t0(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _t1(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _t0(c->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _t1(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
     XMMRegister t0 = _t0.r();
     XMMRegister t1 = _t1.r();
 
-    switch (op)
+    switch (op->id())
     {
       // Dca' = Sca
       // Da'  = Sa
-      case Operation::CompositeSrc:
+      case Operator::CompositeSrc:
       {
         // copy operation (optimized in frontends and also by Generator itself)
         c->movdqa(dst0, src0);
@@ -225,7 +803,7 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
 
       // Dca' = Dca
       // Da'  = Da
-      case Operation::CompositeDest:
+      case Operator::CompositeDest:
       {
         // no operation (optimized in frontends and also by Generator itself)
         break;
@@ -234,10 +812,10 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = Sca + Dca.(1 - Sa)
       // Da'  = Sa + Da.(1 - Sa)
       //      = Sa + Da - Sa.Da
-      case Operation::CompositeOver:
+      case Operator::CompositeOver:
       {
-        doExtractAlpha(t0, src0, 3, true, two);
-        doPackedMultiply(dst0, t0, t0);
+        g->_ExtractAlpha(t0, src0, 3, true, two);
+        g->_PackedMultiply(dst0, t0, t0);
         c->paddusb(dst0, src0);
         break;
       }
@@ -245,47 +823,47 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = Dca + Sca.(1 - Da)
       // Da'  = Da + Sa.(1 - Da)
       //      = Da + Sa - Da.Sa
-      case Operation::CompositeOverReverse:
+      case Operator::CompositeOverReverse:
       {
-        doExtractAlpha(t0, dst0, 3, true, two);
-        doPackedMultiply(src0, t0, t0);
+        g->_ExtractAlpha(t0, dst0, 3, true, two);
+        g->_PackedMultiply(src0, t0, t0);
         c->paddusb(dst0, src0);
         break;
       }
 
       // Dca' = Sca.Da
       // Da'  = Sa.Da 
-      case Operation::CompositeIn:
+      case Operator::CompositeIn:
       {
-        doExtractAlpha(t0, dst0, 3, false, two);
-        doPackedMultiply(src0, t0, dst0, true);
+        g->_ExtractAlpha(t0, dst0, 3, false, two);
+        g->_PackedMultiply(src0, t0, dst0, true);
         break;
       }
 
       // Dca' = Dca.Sa
       // Da'  = Da.Sa
-      case Operation::CompositeInReverse:
+      case Operator::CompositeInReverse:
       {
-        doExtractAlpha(t0, src0, 3, false, two);
-        doPackedMultiply(dst0, t0, t0);
+        g->_ExtractAlpha(t0, src0, 3, false, two);
+        g->_PackedMultiply(dst0, t0, t0);
         break;
       }
 
       // Dca' = Sca.(1 - Da)
       // Da'  = Sa.(1 - Da) 
-      case Operation::CompositeOut:
+      case Operator::CompositeOut:
       {
-        doExtractAlpha(t0, dst0, 3, true, two);
-        doPackedMultiply(src0, t0, dst0, true);
+        g->_ExtractAlpha(t0, dst0, 3, true, two);
+        g->_PackedMultiply(src0, t0, dst0, true);
         break;
       }
 
       // Dca' = Dca.(1 - Sa) 
       // Da'  = Da.(1 - Sa) 
-      case Operation::CompositeOutReverse:
+      case Operator::CompositeOutReverse:
       {
-        doExtractAlpha(t0, src0, 3, true, two);
-        doPackedMultiply(dst0, t0, t0);
+        g->_ExtractAlpha(t0, src0, 3, true, two);
+        g->_PackedMultiply(dst0, t0, t0);
         break;
       }
 
@@ -293,11 +871,11 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Da'  = Sa.Da + Da.(1 - Sa)
       //      = Da.(Sa + 1 - Sa)
       //      = Da
-      case Operation::CompositeAtop:
+      case Operator::CompositeAtop:
       {
-        doExtractAlpha(t0, src0, 3, true, two);
-        doExtractAlpha(t1, dst0, 3, false, two);
-        doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+        g->_ExtractAlpha(t0, src0, 3, true, two);
+        g->_ExtractAlpha(t1, dst0, 3, false, two);
+        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
         break;
       }
 
@@ -305,22 +883,22 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Da'  = Da.Sa + Sa.(1 - Da)
       //      = Sa.(Da + 1 - Da)
       //      = Sa 
-      case Operation::CompositeAtopReverse:
+      case Operator::CompositeAtopReverse:
       {
-        doExtractAlpha(t0, src0, 3, false, two);
-        doExtractAlpha(t1, dst0, 3, true, two);
-        doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+        g->_ExtractAlpha(t0, src0, 3, false, two);
+        g->_ExtractAlpha(t1, dst0, 3, true, two);
+        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
         break;
       }
 
       // Dca' = Sca.(1 - Da) + Dca.(1 - Sa)
       // Da'  = Sa.(1 - Da) + Da.(1 - Sa)
       //      = Sa + Da - 2.Sa.Da 
-      case Operation::CompositeXor:
+      case Operator::CompositeXor:
       {
-        doExtractAlpha(t0, src0, 3, true, two);
-        doExtractAlpha(t1, dst0, 3, true, two);
-        doPackedMultiplyAdd(
+        g->_ExtractAlpha(t0, src0, 3, true, two);
+        g->_ExtractAlpha(t1, dst0, 3, true, two);
+        g->_PackedMultiplyAdd(
           src0, t1, 
           dst0, t0, 
           dst0, true);
@@ -329,7 +907,7 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
 
       // Dca' = 0
       // Da'  = 0
-      case Operation::CompositeClear:
+      case Operator::CompositeClear:
       {
         // clear operation (optimized in frontends and also by Generator itself)
         c->pxor(dst0, dst0);
@@ -338,7 +916,7 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
 
       // Dca' = Sca + Dca
       // Da'  = Sa + Da 
-      case Operation::CompositeAdd:
+      case Operator::CompositeAdd:
       {
         c->paddusb(dst0, src0);
         break;
@@ -346,14 +924,14 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
 
       // Dca' = Dca - Sca
       // Da'  = 1 - (1 - Sa).(1 - Da)
-      case Operation::CompositeSubtract:
+      case Operator::CompositeSubtract:
       {
-        doExtractAlpha(t0, src0, 3, true, two);
-        doExtractAlpha(t1, dst0, 3, true, two);
-        doPackedMultiply(t0, t1, t1);
+        g->_ExtractAlpha(t0, src0, 3, true, two);
+        g->_ExtractAlpha(t1, dst0, 3, true, two);
+        g->_PackedMultiply(t0, t1, t1);
         c->psubusb(dst0, src0);
-        c->por(dst0, GETCONST(g, Cx00FF00000000000000FF000000000000));
-        c->pand(t0, GETCONST(g, Cx00FF00000000000000FF000000000000));
+        c->por(dst0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
+        c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
         c->psubusb(dst0, t0);
         break;
       }
@@ -361,18 +939,18 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = Sca.Dca + Sca.(1 - Da) + Dca.(1 - Sa)
       // Da'  = Sa.Da + Sa.(1 - Da) + Da.(1 - Sa)
       //      = Sa + Da - Sa.Da 
-      case Operation::CompositeMultiply:
+      case Operator::CompositeMultiply:
       {
-        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
         XMMRegister t2 = _t2.r();
 
         c->movdqa(t2, dst0);
-        doPackedMultiply(t2, dst0, t0);
+        g->_PackedMultiply(t2, dst0, t0);
 
-        doExtractAlpha(t0, src0, 3, true, two); // t0 == 1-alpha from src0
-        doExtractAlpha(t1, dst0, 3, true, two); // t1 == 1-alpha from dst0
+        g->_ExtractAlpha(t0, src0, 3, true, two); // t0 == 1-alpha from src0
+        g->_ExtractAlpha(t1, dst0, 3, true, two); // t1 == 1-alpha from dst0
 
-        doPackedMultiplyAdd(dst0, t0, src0, t1, t0);
+        g->_PackedMultiplyAdd(dst0, t0, src0, t1, t0);
         c->paddusw(dst0, t2);
         break;
       }
@@ -380,11 +958,11 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = (Sca.Da + Dca.Sa - Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
       //      = Sca + Dca - Sca.Dca
       // Da'  = Sa + Da - Sa.Da 
-      case Operation::CompositeScreen:
+      case Operator::CompositeScreen:
       {
         c->movdqa(t0, dst0);
         c->paddusw(dst0, src0);
-        doPackedMultiply(t0, src0, t1);
+        g->_PackedMultiply(t0, src0, t1);
         c->psubusw(dst0, t0);
         break;
       }
@@ -393,36 +971,37 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Da'  = min(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
       //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
       //      = Sa + Da - Sa.Da 
-      case Operation::CompositeDarken:
+      case Operator::CompositeDarken:
+      // ... go through ...
 
       // Dca' = max(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
       // Da'  = max(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
       //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
       //      = Sa + Da - Sa.Da 
-      case Operation::CompositeLighten:
+      case Operator::CompositeLighten:
       {
-        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
         XMMRegister t2 = _t2.r();
         XMMRegister t3 = _t3.r();
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src0, 3, false,
           t1, dst0, 3, false);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           t0, dst0, t2,
           t1, src0, t3, true);
 
-        if (op == Operation::CompositeDarken)
+        if (op->id() == Operator::CompositeDarken)
           c->pminsw(t3, t2);
         else
           c->pmaxsw(t3, t2);
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src0, 3, true,
           t1, dst0, 3, true);
-        doPackedMultiplyAdd(
+        g->_PackedMultiplyAdd(
           dst0, t0,
           src0, t1, t2);
         c->paddusw(dst0, t3);
@@ -432,24 +1011,24 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = Sca + Dca - 2.min(Sca.Da, Dca.Sa)
       // Da'  = Sa + Da - min(Sa.Da, Da.Sa)
       //      = Sa + Da - Sa.Da
-      case Operation::CompositeDifference:
+      case Operator::CompositeDifference:
       {
-        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
         XMMRegister t2 = _t2.r();
         XMMRegister t3 = _t3.r();
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src0, 3, false,
           t1, dst0, 3, false);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           t0, dst0, t2,
           t1, src0, t3);
         c->pminsw(t0, t1);
         c->paddusw(dst0, src0);
         c->psubusw(dst0, t0);
-        c->pand(t0, GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
+        c->pand(t0, BLITJIT_GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
         c->psubusw(dst0, t0);
         break;
       }
@@ -462,13 +1041,13 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Substitute 2.Sa.Da with Sa.Da
       //
       // Da'  = Sa + Da - Sa.Da 
-      case Operation::CompositeExclusion:
+      case Operator::CompositeExclusion:
       {
         c->movdqa(t0, src0);
-        doPackedMultiply(t0, dst0, t1);
+        g->_PackedMultiply(t0, dst0, t1);
         c->paddusw(dst0, src0);
         c->psubusw(dst0, t0);
-        c->pand(t0, GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
+        c->pand(t0, BLITJIT_GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
         c->psubusw(dst0, t0);
         break;
       }
@@ -476,30 +1055,30 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = (Da - Dca) * Sa + Dca.(1 - Sa)
       // Da'  = Sa + (Da - Da) * Sa + Da - Sa.Da
       //      = Sa + Da - Sa.Da
-      case Operation::CompositeInvert:
+      case Operator::CompositeInvert:
       {
-        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
         XMMRegister t2 = _t2.r();
         XMMRegister t3 = _t3.r();
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src0, 3, false,  // Sa
           t2, dst0, 3, false); // Da
 
         c->movdqa(t1, t0);
         c->psubusb(t2, dst0);
-        c->pxor(t1, GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+        c->pxor(t1, BLITJIT_GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
 
         // t1 = 1 - Sa
         // t2 = Da - Dca
 
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           t2, t0, t3,     // t2   = Sa.(Da - Dca)
           dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
 
-        c->pand(t0, GETCONST(g, Cx00FF00000000000000FF000000000000));
+        c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
         c->paddusb(dst0, t2);
         c->paddusb(dst0, t0);
         break;
@@ -508,40 +1087,40 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
       // Dca' = (Da - Dca) * Sca + Dca.(1 - Sa)
       // Da'  = Sa + (Da - Da) * Sa + Da - Da.Sa
       //      = Sa + Da - Da.Sa
-      case Operation::CompositeInvertRgb:
+      case Operator::CompositeInvertRgb:
       {
-        XMMRef _t2(f->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(f->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
         XMMRegister t2 = _t2.r();
         XMMRegister t3 = _t3.r();
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src0, 3, false,  // Sa
           t2, dst0, 3, false); // Da
 
         c->movdqa(t1, t0);
         c->psubw(t2, dst0);
-        c->pxor(t1, GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+        c->pxor(t1, BLITJIT_GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
 
         // t1 = 1 - Sa
         // t2 = Da - Dca
 
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           t2, src0, t3,   // t2   = Sca.(Da - Dca)
           dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
 
-        c->pand(t0, GETCONST(g, Cx00FF00000000000000FF000000000000));
+        c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
         c->paddusb(dst0, t2);
         c->paddusb(dst0, t0);
         break;
       }
 
-      case Operation::CompositeSaturate:
+      case Operator::CompositeSaturate:
       {
         Label* L_Skip = c->newLabel();
-        Int32Ref td(f->newVariable(VARIABLE_TYPE_INT32, 0));
-        Int32Ref ts(f->newVariable(VARIABLE_TYPE_INT32, 0));
+        Int32Ref td(c->newVariable(VARIABLE_TYPE_INT32, 0));
+        Int32Ref ts(c->newVariable(VARIABLE_TYPE_INT32, 0));
 
         c->movdqa(t1, dst0);
         c->movdqa(t0, src0);
@@ -556,11 +1135,11 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
         c->and_(ts.r(), 0xFF);
         c->shl(ts.r(), 4);
         c->movd(t0, td.r());
-        doExtractAlpha(t0, t0, 0, 0, false);
+        g->_ExtractAlpha(t0, t0, 0, 0, false);
         // TODO: Broken
         // c->movdqa(t1, ptr(g->rconst.r(), ts.r(), 0, DISPCONST(CxDemultiply)));
-        doPackedMultiply(t0, t1, t1);
-        doPackedMultiply(src0, t0, t0);
+        g->_PackedMultiply(t0, t1, t1);
+        g->_PackedMultiply(src0, t0, t0);
 
         c->bind(L_Skip);
         c->paddusb(dst0, src0);
@@ -569,485 +1148,230 @@ struct GeneratorOp_Composite32_SSE2 : public GeneratorOp
     }
   }
 
-  void doPixelUnpacked_4(
+  void processPixelsUnpacked_4(
     const XMMRegister& dst0, const XMMRegister& src0,
     const XMMRegister& dst1, const XMMRegister& src1)
   {
-    XMMRef _t0(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _t1(f->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _t0(c->newVariable(VARIABLE_TYPE_XMM, 0));
+    XMMRef _t1(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
     XMMRegister t0 = _t0.r();
     XMMRegister t1 = _t1.r();
 
-    switch (op)
+    switch (op->id())
     {
-      case Operation::CompositeSrc:
+      case Operator::CompositeSrc:
         // copy operation (optimized in frontends and also by Generator itself)
         c->movdqa(dst0, src0);
         c->movdqa(dst1, src1);
         break;
-      case Operation::CompositeDest:
+      case Operator::CompositeDest:
         // no operation (optimized in frontends and also by Generator itself)
         break;
-      case Operation::CompositeOver:
-        doExtractAlpha_4(
+      case Operator::CompositeOver:
+        g->_ExtractAlpha_4(
           t0, src0, 3, true,
           t1, src1, 3, true);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           dst0, t0, t0,
           dst1, t1, t1);
         c->paddusb(dst0, src0);
         c->paddusb(dst1, src1);
         break;
-      case Operation::CompositeOverReverse:
-        doExtractAlpha_4(
+      case Operator::CompositeOverReverse:
+        g->_ExtractAlpha_4(
           t0, dst0, 3, true,
           t1, dst1, 3, true);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           src0, t0, t0,
           src1, t1, t1);
         c->paddusb(dst0, src0);
         c->paddusb(dst1, src1);
         break;
-      case Operation::CompositeIn:
-        doExtractAlpha_4(
+      case Operator::CompositeIn:
+        g->_ExtractAlpha_4(
           t0, dst0, 3, false,
           t1, dst1, 3, false);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           src0, t0, dst0,
           src1, t1, dst1,
           true);
         break;
-      case Operation::CompositeInReverse:
-        doExtractAlpha_4(
+      case Operator::CompositeInReverse:
+        g->_ExtractAlpha_4(
           t0, src0, 3, false,
           t1, src1, 3, false);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           dst0, t0, t0,
           dst1, t1, t1);
         break;
-      case Operation::CompositeOut:
-        doExtractAlpha_4(
+      case Operator::CompositeOut:
+        g->_ExtractAlpha_4(
           t0, dst0, 3, true,
           t1, dst1, 3, true);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           src0, t0, dst0,
           src1, t1, dst1,
           true);
         break;
-      case Operation::CompositeOutReverse:
-        doExtractAlpha_4(
+      case Operator::CompositeOutReverse:
+        g->_ExtractAlpha_4(
           t0, src0, 3, true,
           t1, src1, 3, true);
-        doPackedMultiply_4(
+        g->_PackedMultiply_4(
           dst0, t0, t0,
           dst1, t1, t1);
         break;
-      case Operation::CompositeAtop:
-        doExtractAlpha_4(
+      case Operator::CompositeAtop:
+        g->_ExtractAlpha_4(
           t0, src0, 3, true,
           t1, dst0, 3, false);
-        doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src1, 3, true,
           t1, dst1, 3, false);
-        doPackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
+        g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
         break;
-      case Operation::CompositeAtopReverse:
-        doExtractAlpha_4(
+      case Operator::CompositeAtopReverse:
+        g->_ExtractAlpha_4(
           t0, src0, 3, false,
           t1, dst0, 3, true);
-        doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src1, 3, false,
           t1, dst1, 3, true);
-        doPackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
+        g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
         break;
-      case Operation::CompositeXor:
-        doExtractAlpha_4(
+      case Operator::CompositeXor:
+        g->_ExtractAlpha_4(
           t0, src0, 3, true,
           t1, dst0, 3, true);
-        doPackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
 
-        doExtractAlpha_4(
+        g->_ExtractAlpha_4(
           t0, src1, 3, true,
           t1, dst1, 3, true);
-        doPackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
+        g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
         break;
-      case Operation::CompositeClear:
+      case Operator::CompositeClear:
         // clear operation (optimized in frontends and also by Generator itself)
         c->pxor(dst0, dst0);
         c->pxor(dst1, dst1);
         break;
-      case Operation::CompositeAdd:
+      case Operator::CompositeAdd:
         c->paddusb(dst0, src0);
         c->paddusb(dst1, src1);
         break;
-      case Operation::CompositeSubtract:
-      case Operation::CompositeMultiply:
-      case Operation::CompositeScreen:
-      case Operation::CompositeDarken:
-      case Operation::CompositeLighten:
-      case Operation::CompositeDifference:
-      case Operation::CompositeExclusion:
-      case Operation::CompositeInvert:
-      case Operation::CompositeInvertRgb:
-      case Operation::CompositeSaturate:
+      case Operator::CompositeSubtract:
+      case Operator::CompositeMultiply:
+      case Operator::CompositeScreen:
+      case Operator::CompositeDarken:
+      case Operator::CompositeLighten:
+      case Operator::CompositeDifference:
+      case Operator::CompositeExclusion:
+      case Operator::CompositeInvert:
+      case Operator::CompositeInvertRgb:
+      case Operator::CompositeSaturate:
       {
         BLITJIT_ASSERT(0);
         break;
       }
     }
   }
-
-  // --------------------------------------------------------------------------
-  // [Helpers]
-  // --------------------------------------------------------------------------
-
-  //! @brief Extract alpha channel.
-  //! @param dst0 Destination XMM register (can be same as @a src).
-  //! @param src0 Source XMM register.
-  //! @param packed Whether extract alpha for packed pixels (two pixels, 
-  //! one extra instruction).
-  //! @param alphaPos Alpha position.
-  //! @param negate Whether to negate extracted alpha values (255 - alpha).
-  void doExtractAlpha(
-    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0, bool two)
-  {
-    c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-    if (two) c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-
-    if (negate0) c->pxor(dst0, GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
-  }
-
-  void doExtractAlpha_4(
-    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0,
-    const XMMRegister& dst1, const XMMRegister& src1, UInt8 alphaPos1, UInt8 negate1)
-  {
-    c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-    c->pshuflw(dst1, src1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
-
-    c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-    c->pshufhw(dst1, dst1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
-
-    if (negate0) c->pxor(dst0, GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
-    if (negate1) c->pxor(dst1, GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
-  }
-
-  // moveToT0 false:
-  //   a0 = (a0 * b0) / 255, t0 is destroyed.
-  // moveToT0 true:
-  //   t0 = (a0 * b0) / 255, a0 is destroyed.
-  void doPackedMultiply(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
-    bool moveToT0 = false)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->paddusw(a0, r);          // a0 += 80
-    c->movdqa(t0, a0);          // t0  = a0
-    c->psrlw(a0, 8);            // a0 /= 256
-    if (!moveToT0)
-    {
-      c->paddusw(a0, t0);       // a0 += t0
-      c->psrlw(a0, 8);          // a0 /= 256
-    }
-    else
-    {
-      c->paddusw(t0, a0);       // t0 += a0
-      c->psrlw(t0, 8);          // t0 /= 256
-    }
-  }
-
-  void doPackedMultiplyWithAddition(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->movdqa(t0, a0);
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->paddusw(a0, r);          // a0 += 80
-    c->paddusw(b0, t0);
-    c->movdqa(t0, a0);          // t0  = a0
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->paddusw(a0, t0);         // a0 += t0
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->paddusw(a0, b0);
-  }
-
-  // moveToT0T1 false: 
-  //   a0 = (a0 * b0) / 255, t0 is destroyed.
-  //   a1 = (a1 * b1) / 255, t1 is destroyed.
-  // moveToT0T1 true: 
-  //   t0 = (a0 * b0) / 255, a0 is destroyed.
-  //   t1 = (a1 * b1) / 255, a1 is destroyed.
-  void doPackedMultiply_4(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
-    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1,
-    bool moveToT0T1 = false)
-  {
-    XMMRegister r = c0x0080.r();
-
-    // Standard case
-    if (t0 != t1)
-    {
-      c->pmullw(a0, b0);          // a0 *= b0
-      c->pmullw(a1, b1);          // a1 *= b1
-
-      c->paddusw(a0, r);          // a0 += 80
-      c->paddusw(a1, r);          // a1 += 80
-
-      c->movdqa(t0, a0);          // t0  = a0
-      c->psrlw(a0, 8);            // a0 /= 256
-      c->movdqa(t1, a1);          // t1  = a1
-      c->psrlw(a1, 8);            // a1 /= 256
-
-      if (moveToT0T1)
-      {
-        c->paddusw(t0, a0);       // t0 += a0
-        c->psrlw(t0, 8);          // t0 /= 256
-
-        c->paddusw(t1, a1);       // t1 += a1
-        c->psrlw(t1, 8);          // t1 /= 256
-      }
-      else
-      {
-        c->paddusw(a0, t0);       // a0 += t0
-        c->paddusw(a1, t1);       // a1 += t1
-
-        c->psrlw(a0, 8);          // a0 /= 256
-        c->psrlw(a1, 8);          // a1 /= 256
-      }
-    }
-    // Special case if t0 is t1 (can be used to save one regiter if you
-    // haven't it)
-    else
-    {
-      const XMMRegister& t = t0;
-
-      // Can't be moved to t0 and t1 if they are same!
-      BLITJIT_ASSERT(moveToT0T1 == 0);
-
-      c->pmullw(a0, b0);          // a0 *= b0
-      c->pmullw(a1, b1);          // a1 *= b1
-      c->paddusw(a0, r);          // a0 += 80
-      c->paddusw(a1, r);          // a1 += 80
-
-      c->movdqa(t, a0);           // t   = a0
-      c->psrlw(a0, 8);            // a0 /= 256
-      c->paddusw(a0, t);          // a0 += t
-
-      c->movdqa(t, a1);           // t   = a1
-      c->psrlw(a1, 8);            // a1 /= 256
-      c->paddusw(a1, t);          // a1 += t
-
-      c->psrlw(a0, 8);            // a0 /= 256
-      c->psrlw(a1, 8);            // a1 /= 256
-    }
-  }
-
-  // moveToT0 false:
-  //   a0 = (a0 * b0 + c0 * d0) / 255, c0 and t0 are destroyed
-  // moveToT0 true:
-  //   t0 = (a0 * b0 + c0 * d0) / 255, a0 and c0 are destroyed
-  void doPackedMultiplyAdd(
-    const XMMRegister& a0, const XMMRegister& b0,
-    const XMMRegister& c0, const XMMRegister& d0,
-    const XMMRegister& t0, bool moveToT0 = false)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->pmullw(c0, d0);          // c0 *= d0
-    c->paddusw(a0, r);          // a0 += 80
-    c->paddusw(a0, c0);         // a0 += c0
-
-    c->movdqa(t0, a0);          // t0  = a0
-    c->psrlw(a0, 8);            // a0 /= 256
-
-    if (!moveToT0)
-    {
-      c->paddusw(a0, t0);       // a0 += t0
-      c->psrlw(a0, 8);          // a0 /= 256
-    }
-    else
-    {
-      c->paddusw(t0, a0);       // t0 += a0
-      c->psrlw(t0, 8);          // t0 /= 256
-    }
-  }
-
-  void doPackedMultiplyAdd_4(
-    const XMMRegister& a0, const XMMRegister& b0,
-    const XMMRegister& c0, const XMMRegister& d0,
-    const XMMRegister& t0,
-    const XMMRegister& e0, const XMMRegister& f0,
-    const XMMRegister& g0, const XMMRegister& h0,
-    const XMMRegister& t1,
-    bool moveToT0T1)
-  {
-    XMMRegister r = c0x0080.r();
-
-    c->pmullw(a0, b0);          // a0 *= b0
-    c->pmullw(c0, d0);          // c0 *= d0
-
-    c->pmullw(e0, f0);          // e0 *= f0
-    c->pmullw(g0, h0);          // g0 *= h0
-
-    c->paddusw(a0, r);          // a0 += 80
-    c->paddusw(e0, r);          // e0 += 80
-    c->paddusw(a0, c0);         // a0 += c0
-    c->paddusw(e0, g0);         // e0 += g0
-
-    c->movdqa(t0, a0);          // t0  = a0
-    c->movdqa(t1, e0);          // t1  = e0
-
-    c->psrlw(a0, 8);            // a0 /= 256
-    c->psrlw(e0, 8);            // e0 /= 256
-
-    if (!moveToT0T1)
-    {
-      c->paddusw(a0, t0);       // a0 += t0
-      c->paddusw(e0, t1);       // e0 += t1
-      c->psrlw(a0, 8);          // a0 /= 256
-      c->psrlw(e0, 8);          // e0 /= 256
-    }
-    else
-    {
-      c->paddusw(t0, a0);       // t0 += a0
-      c->paddusw(t1, e0);       // t1 += e0
-      c->psrlw(t0, 8);          // t0 /= 256
-      c->psrlw(t1, 8);          // t1 /= 256
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // [Members]
-  // --------------------------------------------------------------------------
-
-  UInt32 op;
-  UInt32 maxPixelsInLoop;
-
-  XMMRef c0x0080;
 };
 
-/*
-struct CompositeOp32_Over : public CompositeOp32_Base
+static FillModule* createFillModule(
+  Generator* g,
+  const PixelFormat* pf,
+  const Operator* op)
 {
-  CompositeOp32_Over(Generator* g, Compiler* c, Function* f) : 
-    CompositeOp32_Base(g, c, f) {}
-  virtual ~CompositeOp32_Over() {}
-
-  virtual void doPixelUnpacked1(
-    const XMMRegister& dst0, const XMMRegister& src0)
+  if (op->id() == Operator::CompositeSrc)
   {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRegister a0 = _a0.r();
-
-    // expand a0
-    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
-    c->paddw(a0, c0x0080.r());
-
-    // composite over
-    c->psubw(src0, dst0);       // src0 -= dst0
-    c->pmullw(src0, a0);        // src0 *= a0
-    c->psllw(dst0, 8);          // dst0 *= 256
-    c->paddw(dst0, src0);       // dst0 += src0
-    c->psrlw(dst0, 8);          // dst0 /= 256
+    return new MemSetModule_32(g, pf, op);
   }
-
-  virtual void doPixelUnpacked2(
-    const XMMRegister& dst0, const XMMRegister& src0)
+  else
   {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRegister a0 = _a0.r();
-
-    // expand a0
-    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
-    c->pshufhw(a0, a0, mm_shuffle(3, 3, 3, 3));
-    c->paddw(a0, c0x0080.r());
-
-    // composite over
-    c->psubw(src0, dst0);       // src0 -= dst0
-    c->pmullw(src0, a0);        // src0 *= a0
-    c->psllw(dst0, 8);          // dst0 *= 256
-    c->paddw(dst0, src0);       // dst0 += src0
-    c->psrlw(dst0, 8);          // dst0 /= 256
+    return new FillModule_32_SSE2(g, pf, op);
   }
+}
 
-  virtual void doPixelUnpacked4(
-    const XMMRegister& dst0, const XMMRegister& src0, 
-    const XMMRegister& dst1, const XMMRegister& src1)
+static CompositeModule* createCompositeModule(
+  Generator* g,
+  const PixelFormat* pfDst,
+  const PixelFormat* pfSrc,
+  const Operator* op)
+{
+  if (op->id() == Operator::CompositeSrc)
   {
-    XMMRef _a0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRef _a1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-    XMMRegister a0 = _a0.r();
-    XMMRegister a1 = _a1.r();
-
-    // expand a0, a1
-    c->pshuflw(a0, src0, mm_shuffle(3, 3, 3, 3));
-    c->pshuflw(a1, src1, mm_shuffle(3, 3, 3, 3));
-    c->pshufhw(a0, a0, mm_shuffle(3, 3, 3, 3));
-    c->pshufhw(a1, a1, mm_shuffle(3, 3, 3, 3));
-
-    c->paddw(a0, c0x0080.r());
-    c->paddw(a1, c0x0080.r());
-
-    // composite over
-    c->psubw(src0, dst0);       // src0 -= dst0
-    c->psubw(src1, dst1);       // src1 -= dst1
-    c->pmullw(src0, a0);        // src0 *= a0
-    c->pmullw(src1, a1);        // src1 *= a1
-    c->psllw(dst0, 8);          // dst0 *= 256
-    c->psllw(dst1, 8);          // dst1 *= 256
-    c->paddw(dst0, src0);       // dst0 += src0
-    c->paddw(dst1, src1);       // dst1 += src1
-    c->psrlw(dst0, 8);          // dst0 /= 256
-    c->psrlw(dst1, 8);          // dst1 /= 256
+    return new MemCpyModule_32(g, pfDst, pfSrc, op);
   }
-};
-*/
+  else
+  {
+    return new CompositeModule_32_SSE2(g, pfDst, pfSrc, op);
+  }
+}
 
 // ============================================================================
-// [BlitJit::Generator - Construction / Destruction]
+// [BlitJit::GeneratorBase]
 // ============================================================================
 
-Generator::Generator(Compiler* c) : 
-  c(c),
+GeneratorBase::GeneratorBase(AsmJit::Compiler* _c) :
+  c(_c),
   f(NULL)
 {
   // First of all, initialize BlitJit library if it's not initialized before.
   Api::init();
 
-  // Initialize cpu features we will use
-  features = cpuInfo()->features;
+  // Create own compiler instance if no one provided.
+  if (c == NULL) c = new(_compiler) Compiler();
+}
 
+GeneratorBase::~GeneratorBase()
+{
+  // Delete compiler if we created it.
+  if ((void*)c == (void*)_compiler) c->~Compiler();
+}
+
+// ============================================================================
+// [BlitJit::Generator - Construction / Destruction]
+// ============================================================================
+
+static UInt32 getOptimizationFromCpuFeatures(UInt32 features)
+{
   // Optimize is enumeration we are using internally to select cpu specific
   // optimizations.
 #if defined(ASMJIT_X86)
   // 32-bit mode: Detect features for 32 bit processors
   if (features & CpuInfo::Feature_SSE2)
-    optimize = OptimizeSSE2;
+    return Api::OptimizeSSE2;
   else if (features & CpuInfo::Feature_MMX)
-    optimize = OptimizeMMX;
+    return Api::OptimizeMMX;
   else
-    optimize = OptimizeX86;
+    return Api::OptimizeX86;
 #else
   // 64-bit mode: 64-bit processors are SSE2 capable by default.
-  optimize = OptimizeSSE2;
+  return Api::OptimizeSSE2;
 #endif
+}
+
+Generator::Generator(Compiler* _c) : GeneratorBase(_c)
+{
+  // Initialize cpu features we will use
+  _features = cpuInfo()->features;
+
+  // Detect maximum possible optimization
+  _optimization = getOptimizationFromCpuFeatures(_features);
 
   // Turn ON prefetching by default
-  prefetch = 1;
+  _prefetch = 1;
 
-  // Turn ON non-thermal hints by default
-  nonThermalHint = 1;
+  // Turn OFF non-thermal hints by default
+  _nonThermalHint = 0;
 
-  // Body flags are clear by default
-  body = 0;
+  // Body flags are clean by default
+  _body = 0;
 }
 
 Generator::~Generator()
@@ -1055,414 +1379,858 @@ Generator::~Generator()
 }
 
 // ============================================================================
-// [BlitJit::Generator - fillSpan]
+// [BlitJit::Generator - Getters / Setters]
 // ============================================================================
 
-void Generator::genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+void Generator::setFeatures(UInt32 features)
 {
-  c->comment("BlitJit::Generator::fillSpan() - %s <- %s : %s\n", pfDst.name(), pfSrc.name(), op.name());
+  _features = features;
+  _optimization = getOptimizationFromCpuFeatures(features);
+}
 
-  f = c->newFunction(CConv, BuildFunction3<void*, UInt32, SysUInt>());
+void Generator::setOptimization(UInt32 optimization)
+{
+  _optimization = optimization;
+}
+
+void Generator::setPrefetch(bool prefetch)
+{
+  _prefetch = prefetch;
+}
+
+void Generator::setNonThermalHint(bool nonThermalHint)
+{
+  _nonThermalHint = nonThermalHint;
+}
+
+// ============================================================================
+// [BlitJit::Generator - Premultiply / Demultiply]
+// ============================================================================
+
+//! @brief Generate pixel premultiply function.
+void Generator::genPremultiply(const PixelFormat& pfDst)
+{
+  c->comment("BlitJit::Generator::genPremultiply() - %s", pfDst.name());
+
+  f = c->newFunction(CConv, BuildFunction2<void*, SysUInt>());
   f->setNaked(true);
   f->setAllocableEbp(true);
 
-  // If operation is nop, do nothing - this should be better optimized in frontend
-  if (op.id() == Operation::CompositeDest) { c->endFunction(); return; }
+  PtrRef dst(c->argument(0));
+  SysIntRef cnt(c->argument(1));
 
-#if 0
-  // Destination and source
-  PtrRef dst = f->argument(0); 
-  Int32Ref src = f->argument(1);
-  SysIntRef cnt = f->argument(2);
+  // TODO
+}
 
-  cnt.setPriority(0);
-  dst.setPriority(0);
-  src.setPriority(0);
+//! @brief Generate pixel demultiply function.
+void Generator::genDemultiply(const PixelFormat& pfDst)
+{
+  c->comment("BlitJit::Generator::genDemultiply() - %s", pfDst.name());
 
-  // If source pixel format not contains alpha channel, add it
-  if (!pfSrc.isAlpha())
+  f = c->newFunction(CConv, BuildFunction2<void*, SysUInt>());
+  f->setNaked(true);
+  f->setAllocableEbp(true);
+
+  PtrRef dst(c->argument(0));
+  SysIntRef cnt(c->argument(1));
+
+  // TODO
+}
+
+// ============================================================================
+// [BlitJit::Generator - fillSpan]
+// ============================================================================
+
+void Generator::genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op)
+{
+  c->comment("BlitJit::Generator::genFillSpan() - %s <- %s : %s", pfDst.name(), pfSrc.name(), op.name());
+
+  f = c->newFunction(CConv, BuildFunction3<void*, const void*, SysUInt>());
+  f->setNaked(true);
+  f->setAllocableEbp(true);
+
+  // Filter module
+  FillModule* module = createFillModule(this, &pfDst, &op);
+
+  if (!module->isNop())
   {
-    c->or_(src.r(), pfDst.aMask32());
-  }
+    // Destination and source
+    PtrRef dst(c->argument(0));
+    PtrRef src(c->argument(1));
+    SysIntRef cnt(c->argument(2));
 
-  /*
-  I don't know if this is useable
-  if (op.dstAlphaUsed() && !op.srcAlphaUsed())
-  {
-    c->or_(src.r(), pfDst.aMask32());
-  }
-  */
+    cnt.alloc();
+    dst.alloc();
+    src.alloc();
 
-  // --------------------------------------------------------------------------
-  // [SSE2]
-  // --------------------------------------------------------------------------
+    // Loop properties
+    Loop loop;
+    loop.finalizePointers = false;
 
-  if (1)
-  {
-    if (1)
+    module->init(src, &pfSrc);
+    src.unuse();
+    module->beginSwitch();
+
+    for (UInt32 kind = 0; kind < module->numKinds(); kind++)
     {
-      // Labels
-      Label* L_Align = c->newLabel();
-      Label* L_Loop = c->newLabel();
-      Label* L_End = c->newLabel();
-
-      // We can process 4 pixels at a time
-      XMMRef _dstpix0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-      XMMRef _dstpix1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-      // Source pixel is only one (we will expand it to xmm register later)
-      XMMRef _srcpix0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-      XMMRef _srctmp0 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-      XMMRef _srctmp1 = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-      // Aplha value
-      XMMRef _alpha = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-      // Zero register 
-      XMMRef _z = f->newVariable(VARIABLE_TYPE_XMM, 0);
-
-      XMMRegister dstpix0 = _dstpix0.r();
-      XMMRegister dstpix1 = _dstpix1.r();
-      XMMRegister srcpix0 = _srcpix0.r();
-      XMMRegister srctmp0 = _srctmp0.r();
-      XMMRegister srctmp1 = _srctmp1.r();
-      XMMRegister alpha = _alpha.r();
-      XMMRegister z = _z.r();
-
-      c->pxor(z, z);
-      c->movd(srcpix0, src.r());
-      c->punpcklbw(srcpix0, z);
-
-      c->movaps(alpha, srcpix0);
-      c->pshuflw(alpha, alpha, mm_shuffle(0, 0, 0, 0));
-      c->pshufd(alpha, alpha, mm_shuffle(0, 0, 0, 0));
-      //c->punpcklwd(alpha, alpha);         // r = [  ][  ][  ][  ][  ][  ][0A][0A]
-      //c->punpckldq(alpha, alpha);         // r = [  ][  ][  ][  ][0A][0A][0A][0A]
-      //c->punpcklqdq(alpha, alpha);        // r = [0A][0A][0A][0A][0A][0A][0A][0A]
-
-      // ----------------------------------------------------------------------
-      // [Align]
-      // ----------------------------------------------------------------------
-
-      // Skip aligning step if dst already aligned
-      PtrRef t = f->newVariable(VARIABLE_TYPE_PTR, 0);
-      t.alloc();
-
-      c->bind(L_Align);
-
-      c->mov(t.r(), dst.r());
-      c->and_(t.r(), 15);
-      c->jz(L_Loop);
-
-      // Load
-      if (op.dstPixelUsed() || 1)
-      {
-        switch (pfDst.id())
-        {
-          case PixelFormat::ARGB32:
-          case PixelFormat::PRGB32:
-          case PixelFormat::XRGB32:
-            c->movd(dstpix0, dword_ptr(dst.r()));
-            break;
-        }
-      }
-
-      // Composite
-      switch (op.id())
-      {
-        case Operation::CombineCopy:
-          //break;
-        case Operation::CombineBlend:
-          c->punpcklbw(dstpix0, z);
-          c->movaps(srctmp0, srcpix0);
-          xmmLerp2(dstpix0, srctmp0, alpha);
-          c->packuswb(dstpix0, dstpix0);
-          break;
-      }
-
-      // Store
-      switch (pfDst.id())
-      {
-        case PixelFormat::ARGB32:
-        case PixelFormat::PRGB32:
-        case PixelFormat::XRGB32:
-          //c->movd(src.r(), dstpix0);
-          //c->movnti(dword_ptr(dst.r()), src.r());
-          c->movd(dword_ptr(dst.r()), dstpix0);
-          break;
-      }
-
-      // End ?
-      c->add(dst.r(), pfDst.depth() / 8);
-      c->dec(cnt.r());
-      c->jz(L_End);
-
-      // Align more ?
-      c->mov(t.r(), dst.r());
-      c->and_(t.r(), 15);
-      c->jnz(L_Align);
-
-      // ----------------------------------------------------------------------
-      // [Loop]
-      // ----------------------------------------------------------------------
-
-      c->bind(L_Loop);
-
-      c->sub(dst.r(), 4);
-      c->jo(L_End);
-
-      // Load
-      if (op.dstPixelUsed() || 1)
-      {
-        switch (pfDst.id())
-        {
-          case PixelFormat::ARGB32:
-          case PixelFormat::PRGB32:
-          case PixelFormat::XRGB32:
-            c->movq(dstpix0, dword_ptr(dst.r(), 0));
-            c->movq(dstpix1, dword_ptr(dst.r(), 8));
-            break;
-        }
-      }
-
-      // Composite
-      switch (op.id())
-      {
-        case Operation::CombineCopy:
-          //break;
-        case Operation::CombineBlend:
-          c->punpcklbw(dstpix0, z);
-          c->punpcklbw(dstpix1, z);
-          c->movaps(srctmp0, srcpix0);
-          c->movaps(srctmp1, srcpix0);
-          xmmLerp4(dstpix0, srctmp0, alpha, dstpix1, srctmp1, alpha);
-          c->packuswb(dstpix0, dstpix0);
-          c->packuswb(dstpix1, dstpix1);
-          break;
-      }
-
-      // Store
-      switch (pfDst.id())
-      {
-        case PixelFormat::ARGB32:
-        case PixelFormat::PRGB32:
-        case PixelFormat::XRGB32:
-          c->movq(dword_ptr(dst.r(), 0), dstpix0);
-          c->movq(dword_ptr(dst.r(), 8), dstpix1);
-          break;
-      }
-
-      // ----------------------------------------------------------------------
-      // [End]
-      // ----------------------------------------------------------------------
-
-      c->bind(L_End);
+      module->beginKind(kind);
+      _GenFillLoop(dst, cnt, module, kind, loop);
+      module->endKind(kind);
     }
+
+    module->endSwitch();
+    module->free();
   }
 
-  // --------------------------------------------------------------------------
-  // [X86]
-  // --------------------------------------------------------------------------
+  c->endFunction();
 
-  else
+  // Cleanup
+  delete module;
+}
+
+void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op)
+{
+  c->comment("BlitJit::Generator::genFillRect() - %s <- %s : %s", pfDst.name(), pfSrc.name(), op.name());
+
+  f = c->newFunction(CConv, BuildFunction3<void*, const void*, SysUInt>());
+  f->setNaked(true);
+  f->setAllocableEbp(true);
+
+  // Filter module
+  FillModule* module = createFillModule(this, &pfDst, &op);
+
+  if (!module->isNop())
   {
-    // We can optimize simple fills much more than compositing operations.
-    // Simple fill should be maxPixelsInLooped loop for 32 or more bytes at a time.
-    if (pfDst.depth() == 32 && op.id() == Operation::CombineCopy)
-    {
-      x86MemSet32(dst, src, cnt);
-    }
-    else
-    {
-      Int32Ref pixel = f->newVariable(VARIABLE_TYPE_UINT32, 0);
-      pixel.alloc();
+    // Destination and source
+    PtrRef dst(c->argument(0));
+    PtrRef src(c->argument(1));
+    SysIntRef dstStride(c->argument(2));
+    SysIntRef srcStride(c->argument(3));
+    SysIntRef width(c->argument(4));
+    SysIntRef height(c->argument(5));
 
+    SysIntRef cnt(c->newVariable(VARIABLE_TYPE_SYSINT));
+
+    // Adjust dstStride and srcStride
+    {
+      SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT));
+
+      c->mov(t.r(), width);
+      c->shl(t.r(), 2);
+
+      c->sub(dstStride, t.r());
+      c->sub(srcStride, t.r());
+    }
+
+    cnt.alloc();
+    dst.alloc();
+    src.alloc();
+
+    // Loop properties
+    Loop loop;
+    loop.finalizePointers = true;
+
+    module->init(src, &pfSrc);
+    src.unuse();
+    module->beginSwitch();
+
+    for (UInt32 kind = 0; kind < module->numKinds(); kind++)
+    {
       Label* L_Loop = c->newLabel();
       c->bind(L_Loop);
+      c->mov(cnt.r(), width);
 
-      // Load
-      if (op.dstPixelUsed())
-      {
-        switch (pfDst.id())
-        {
-          case PixelFormat::ARGB32:
-          case PixelFormat::PRGB32:
-          case PixelFormat::XRGB32:
-            c->mov(pixel.x(), dword_ptr(src.r()));
-            break;
-        }
-      }
+      module->beginKind(kind);
+      _GenFillLoop(dst, cnt, module, kind, loop);
+      module->endKind(kind);
 
-      // Composite
-      switch (op.id())
-      {
-        case Operation::CombineCopy:
-          break;
-      }
-
-      // Store
-      switch (pfDst.id())
-      {
-        case PixelFormat::ARGB32:
-        case PixelFormat::PRGB32:
-        case PixelFormat::XRGB32:
-          c->mov(dword_ptr(dst.r()), pixel.r());
-          break;
-      }
-
-      // End
-      c->add(dst.r(), pfDst.depth() / 8);
-      c->dec(cnt.r());
+      c->add(dst.r(), dstStride);
+      c->sub(height, imm(1));
       c->jnz(L_Loop);
     }
+
+    module->endSwitch();
+    module->free();
   }
-#endif
+
   c->endFunction();
+
+  // Cleanup
+  delete module;
 }
 
-void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+void Generator::genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op)
 {
-}
-
-void Generator::genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
-{
-  c->comment("BlitJit::Generator::blitSpan() - %s <- %s : %s\n", pfDst.name(), pfSrc.name(), op.name());
+  c->comment("BlitJit::Generator::genBlitSpan() - %s <- %s : %s", pfDst.name(), pfSrc.name(), op.name());
 
   f = c->newFunction(CConv, BuildFunction3<void*, void*, SysUInt>());
   f->setNaked(true);
   f->setAllocableEbp(true);
 
-  // If operation is nop, do nothing - this should be better optimized in frontend
-  if (op.id() == Operation::CompositeDest) { c->endFunction(); return; }
+  // Compositing module
+  CompositeModule* module = createCompositeModule(this, &pfSrc, &pfDst, &op);
 
-  // Destination and source
-  PtrRef dst(f->argument(0));
-  PtrRef src(f->argument(1));
-  SysIntRef cnt(f->argument(2));
-
-  cnt.setPriority(0);
-  dst.setPriority(0);
-  src.setPriority(0);
-
-  // [CombineCopy]
-  if (op.id() == Operation::CompositeSrc)
+  if (!module->isNop())
   {
-    if (pfDst.depth() == 32 && pfSrc.depth() == 32)
+    // Destination and source
+    PtrRef dst(c->argument(0));
+    PtrRef src(c->argument(1));
+    SysIntRef cnt(c->argument(2));
+
+    cnt.alloc();
+    dst.alloc();
+    src.alloc();
+
+    // Loop properties
+    Loop loop;
+    loop.finalizePointers = false;
+
+    module->init();
+    module->beginSwitch();
+
+    for (UInt32 kind = 0; kind < module->numKinds(); kind++)
     {
-      _MemCpy32(dst, src, cnt);
+      module->beginKind(kind);
+      _GenCompositeLoop(dst, src, cnt, module, kind, loop);
+      module->endKind(kind);
     }
-  }
-  // [Combine...]
-  else
-  {
-    if (optimize == OptimizeX86)
-    {
-      // TODO
-    }
-    else if (optimize == OptimizeMMX)
-    {
-      // TODO
-    }
-    else if (optimize == OptimizeSSE2)
-    {
-      GeneratorOp_Composite32_SSE2 c_op(this, c, f, op.id());
-      c_op.init();
-      _Composite32_SSE2(dst, src, cnt, c_op);
-      c_op.free();
-    }
+
+    module->endSwitch();
+    module->free();
   }
 
   c->endFunction();
+
+  // Cleanup
+  delete module;
 }
 
-void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operation& op)
+void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op)
 {
-  c->comment("BlitJit::Generator::blitRect() - %s <- %s : %s\n", pfDst.name(), pfSrc.name(), op.name());
+  c->comment("BlitJit::Generator::genBlitRect() - %s <- %s : %s", pfDst.name(), pfSrc.name(), op.name());
 
   f = c->newFunction(CConv, BuildFunction6<void*, void*, SysInt, SysInt, SysUInt, SysUInt>());
   f->setNaked(true);
   f->setAllocableEbp(true);
 
-  // If operation is nop, do nothing - this should be better optimized in frontend
-  if (op.id() == Operation::CompositeDest) { c->endFunction(); return; }
+  // Compositing module
+  CompositeModule* module = createCompositeModule(this, &pfSrc, &pfDst, &op);
 
-  // Destination and source
-  PtrRef dst(f->argument(0));
-  PtrRef src(f->argument(1));
-  SysIntRef dstStride(f->argument(2));
-  SysIntRef srcStride(f->argument(3));
-  SysIntRef width(f->argument(4));
-  SysIntRef height(f->argument(5));
-
-  SysIntRef cnt(f->newVariable(VARIABLE_TYPE_SYSINT));
-
-  // Adjust dstStride and srcStride
+  if (!module->isNop())
   {
-    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT));
+    // Destination and source
+    PtrRef dst(c->argument(0));
+    PtrRef src(c->argument(1));
+    SysIntRef dstStride(c->argument(2));
+    SysIntRef srcStride(c->argument(3));
+    SysIntRef width(c->argument(4));
+    SysIntRef height(c->argument(5));
 
-    c->mov(t.r(), width);
-    c->shl(t.r(), 2);
+    SysIntRef cnt(c->newVariable(VARIABLE_TYPE_SYSINT));
 
-    c->sub(dstStride, t.r());
-    c->sub(srcStride, t.r());
-  }
+    // Adjust dstStride and srcStride
+    {
+      SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT));
 
-  cnt.setPriority(0);
-  dst.setPriority(0);
-  src.setPriority(0);
+      c->mov(t.r(), width);
+      c->shl(t.r(), 2);
 
-  // [CombineCopy]
-  if (op.id() == Operation::CompositeSrc)
-  {
-    if (pfDst.depth() == 32 && pfSrc.depth() == 32)
+      c->sub(dstStride, t.r());
+      c->sub(srcStride, t.r());
+    }
+
+    cnt.alloc();
+    dst.alloc();
+    src.alloc();
+
+    // Loop properties
+    Loop loop;
+    loop.finalizePointers = true;
+
+    module->init();
+    module->beginSwitch();
+
+    for (UInt32 kind = 0; kind < module->numKinds(); kind++)
     {
       Label* L_Loop = c->newLabel();
       c->bind(L_Loop);
       c->mov(cnt.r(), width);
 
-      _MemCpy32(dst, src, cnt);
+      module->beginKind(kind);
+      _GenCompositeLoop(dst, src, cnt, module, kind, loop);
+      module->endKind(kind);
 
       c->add(dst.r(), dstStride);
       c->add(src.r(), srcStride);
-      c->dec(height);
+      c->sub(height, imm(1));
       c->jnz(L_Loop);
     }
-  }
-  // [Combine...]
-  else
-  {
-    if (optimize == OptimizeSSE2)
-    {
-      GeneratorOp_Composite32_SSE2 c_op(this, c, f, op.id());
-      c_op.init();
 
-      Label* L_Loop = c->newLabel();
-      c->bind(L_Loop);
-      c->mov(cnt.r(), width);
-
-      _Composite32_SSE2(dst, src, cnt, c_op);
-
-      c->add(dst.r(), dstStride);
-      c->add(src.r(), srcStride);
-      c->dec(height);
-      c->jnz(L_Loop);
-
-      c_op.free();
-    }
+    module->endSwitch();
+    module->free();
   }
 
   c->endFunction();
+
+  // Cleanup
+  delete module;
+}
+
+// --------------------------------------------------------------------------
+// [Generator::Loops]
+// --------------------------------------------------------------------------
+
+// Calculate correct alignment. We need to use dstSize and pixels perLoop.
+// If perLoop is too short (1, maybe two pixels) alignment is in most cases
+// no necessary (for two pixels it's simple condition).
+static SysInt getAlignment(SysInt dstSize, SysInt perLoop)
+{
+  SysInt align = 0;
+  if (perLoop <= 1) return align;
+
+  switch (dstSize)
+  {
+    case 1:
+      if      (perLoop >=16) align =16;
+      else if (perLoop >= 8) align = 8;
+      else if (perLoop >= 4) align = 4;
+      else if (perLoop >= 2) align = 2;
+      break;
+    case 2:
+      if      (perLoop >= 8) align =16;
+      else if (perLoop >= 4) align = 8;
+      else if (perLoop >= 2) align = 4;
+      break;
+    case 3:
+      align = 4;
+      break;
+    case 4:
+      align = (perLoop >= 4) ? 16 : 8;
+      break;
+    case 8:
+      align = 16;
+      break;
+  }
+
+  return align;
+}
+
+void Generator::_GenFillLoop(
+  PtrRef& dst,
+  SysIntRef& cnt,
+  FillModule* module,
+  UInt32 kind,
+  const Loop& loop)
+{
+  // First calculate how the loop will be structured
+  SysInt perLoop = module->maxPixelsPerLoop();
+  SysInt dstSize = module->pf->depth() / 8;
+
+  SysInt align = getAlignment(dstSize, perLoop);
+
+  // Save state
+  StateRef state(c->saveState());
+
+  // Helpers
+  SysIntRef tmp(c->newVariable(VARIABLE_TYPE_SYSINT));
+
+  // Labels
+  Label* L_MainEntry  = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_MainLoop   = c->newLabel();
+  Label* L_Misaligned = NULL;
+  // Only if more pixels at a time are used
+  Label* L_TailEntry  = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_TailPre    = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_TailLoop   = (perLoop > 1) ? c->newLabel() : NULL;
+  // End
+  Label* L_End        = c->newLabel();
+
+  // Alloc variables if they are not allocated before
+  dst.alloc();
+  cnt.alloc();
+  // We need one temporary variable for alignment
+  if (align != 0) tmp.alloc();
+  c->clearPrevented();
+
+  // Skip alignment and main loop if cnt is too small (to be useful)
+  if (perLoop > 1 && align)
+  {
+    c->cmp(cnt.r(), imm(perLoop));
+    c->jb(L_TailLoop);
+  }
+
+  // Align 4 bytes dst to 8 bytes. We are using trict that if alignment
+  // fail, we will continue into main loop, because this type of alignment
+  // is usually used together with MMX or X64 modes (no SSE and unaligned
+  // exceptions here)
+  if (dstSize == 4 && align == 8)
+  {
+    c->mov(tmp.x(), dst.r());
+    c->and_(tmp.r(), imm(7));
+    c->jz(L_MainEntry);
+    tmp.unuse();
+
+    module->processPixelsPtr(dst, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->sub(cnt.r(), imm(1));
+  }
+  // Align 4 bytes dst to 16 bytes. This is hardest job, because we must
+  // ensure that destination is aligned for instructions that needs it.
+  // This is reason for last check and bail into tail loop if destination
+  // is totally misaligned (this shouldn't happpen, but we must be sure).
+  else if (dstSize == 4 && align == 16)
+  {
+    // Calculate how many pixels needs to be aligned
+    c->xor_(tmp.x(), tmp.x());
+    c->sub(tmp.r(), dst.r());
+    c->and_(tmp.r(), imm(15));
+    // Alignment not needed, jump to main loop entry
+    c->jz(L_MainEntry);
+
+    c->shr(tmp.r(), imm(2));
+    c->sub(cnt.r(), tmp.r());
+
+    Label* L_AlignLoop = c->newLabel();
+    c->bind(L_AlignLoop);
+    module->processPixelsPtr(dst, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->sub(tmp.r(), imm(1));
+    c->jnz(L_AlignLoop);
+
+    // Make sure that dst is aligned to 16 bytes
+    c->mov(tmp.x(), dst.r());
+    c->and_(tmp.r(), imm(15));
+
+    if (module->complexity() == Module::Simple)
+    {
+      L_Misaligned = c->newLabel();
+      c->jnz(L_Misaligned);
+    }
+    else
+    {
+      c->jnz(L_TailLoop);
+    }
+    tmp.unuse();
+  }
+  // TODO: Not implemented
+  else if (align)
+  {
+    BLITJIT_ASSERT(0);
+  }
+
+  // Main Loop
+  if (perLoop > 1)
+  {
+    // More pixels at a time
+    c->bind(L_MainEntry);
+    c->sub(cnt.r(), imm(perLoop));
+    c->jc(L_TailEntry);
+
+    c->bind(L_MainLoop);
+
+    if (_prefetch && module->prefetchDst()) c->prefetch(ptr(dst.r(), perLoop * dstSize), PREFETCH_T0);
+
+    module->processPixelsPtr(dst, perLoop, 0, kind, Module::DstAligned);
+    c->add(dst.r(), imm(perLoop * dstSize));
+    c->sub(cnt.r(), imm(perLoop));
+    c->jnc(L_MainLoop);
+  }
+  else
+  {
+    // One pixel at a time
+    c->bind(L_MainLoop);
+    module->processPixelsPtr(dst, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->sub(cnt.r(), imm(1));
+    c->jnz(L_MainLoop);
+  }
+
+  if (L_Misaligned)
+  {
+    OutsideBlock block(c);
+    Label* L_MisalignedLoop = c->newLabel();
+
+    // More pixels at a time
+    c->bind(L_Misaligned);
+    c->sub(cnt.r(), imm(perLoop));
+    c->jc(L_TailEntry);
+
+    c->bind(L_MisalignedLoop);
+
+    if (_prefetch && module->prefetchDst()) c->prefetch(ptr(dst.r(), perLoop * dstSize), PREFETCH_T0);
+
+    module->processPixelsPtr(dst, perLoop, 0, kind, 0);
+    c->add(dst.r(), imm(perLoop * dstSize));
+    c->sub(cnt.r(), imm(perLoop));
+    c->jnc(L_MisalignedLoop);
+    c->jmp(L_TailEntry);
+  }
+
+  // Tail (only if more pixels at a time loop is used)
+  if (perLoop == 1)
+  {
+    // NOP
+  }
+  else if (perLoop == 2)
+  {
+    // Two pixels at a time, it's only needed to process remaining pixel
+    c->bind(L_TailEntry);
+    c->add(cnt.r(), imm(2));
+    c->jz(L_End);
+
+    c->bind(L_TailLoop);
+    module->processPixelsPtr(dst, 1, 0, kind, 0);
+    if (loop.finalizePointers)
+    {
+      c->add(dst.r(), imm(dstSize));
+    }
+  }
+  else if (module->complexity() == Module::Simple)
+  {
+    SysInt i = perLoop;
+
+    // Jump table based loop for simple operators
+    c->bind(L_TailEntry);
+    c->add(cnt.r(), imm(perLoop));
+    c->jz(L_End);
+
+    c->bind(L_TailLoop);
+
+    if (i > 8)
+    {
+      JumpTable* jumpTable = c->newJumpTable();
+      Label* L_Skip = c->newLabel();
+      jumpTable->addLabel(L_Skip, 0);
+
+      tmp.use(c->newVariable(VARIABLE_TYPE_SYSINT));
+      c->mov(tmp.x(), cnt.r());
+      c->shr(tmp.r(), 2);
+      c->jumpToTable(jumpTable, tmp.r());
+      tmp.unuse();
+
+      for (SysInt j = (i / 4) - 1; j > 0; j--, i -= 4)
+      {
+        c->bind(jumpTable->addLabel(NULL, j));
+        module->processPixelsPtr(dst, 4, 0, kind, 0);
+        c->add(dst.r(), imm(dstSize * 4));
+      }
+      c->and_(cnt.r(), 3);
+      c->bind(L_Skip);
+    }
+
+    // Last few pixels will be processed through jump table
+    {
+      JumpTable* jumpTable = c->newJumpTable();
+      jumpTable->addLabel(L_End, 0);
+
+      // cnt is modified by jumpToTable().
+      c->jumpToTable(jumpTable, cnt.r());
+
+      for (i--; i > 0; i--)
+      {
+        c->bind(jumpTable->addLabel(NULL, i));
+        module->processPixelsPtr(dst, 1, 0, kind, 0);
+        c->add(dst.r(), imm(dstSize));
+      }
+    }
+  }
+  else
+  {
+    // Complex operators
+    c->bind(L_TailEntry);
+    c->add(cnt.r(), imm(perLoop));
+    c->jz(L_End);
+
+    c->bind(L_TailLoop);
+    module->processPixelsPtr(dst, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->sub(cnt.r(), imm(1));
+    c->jnz(L_TailLoop);
+  }
+
+  // End
+  c->bind(L_End);
+}
+
+void Generator::_GenCompositeLoop(
+  PtrRef& dst,
+  PtrRef& src,
+  SysIntRef& cnt,
+  CompositeModule* module,
+  UInt32 kind,
+  const Loop& loop)
+{
+  // First calculate how the loop will be structured
+  SysInt perLoop = module->maxPixelsPerLoop();
+  SysInt dstSize = module->pfDst->depth() / 8;
+  SysInt srcSize = module->pfSrc->depth() / 8;
+
+  SysInt align = getAlignment(dstSize, perLoop);
+
+  // Save state
+  StateRef state(c->saveState());
+
+  // Helpers
+  SysIntRef tmp(c->newVariable(VARIABLE_TYPE_SYSINT));
+
+  // Labels
+  Label* L_MainEntry  = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_MainLoop   = c->newLabel();
+  Label* L_Misaligned = NULL;
+  // Only if more pixels at a time are used
+  Label* L_TailEntry  = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_TailPre    = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_TailLoop   = (perLoop > 1) ? c->newLabel() : NULL;
+  // End
+  Label* L_End        = c->newLabel();
+
+  // Alloc variables if they are not allocated before
+  dst.alloc();
+  src.alloc();
+  cnt.alloc();
+  // We need one temporary variable for alignment
+  if (align != 0) tmp.alloc();
+  c->clearPrevented();
+
+  // Skip alignment and main loop if cnt is too small (to be useful)
+  if (perLoop > 1 && align)
+  {
+    c->cmp(cnt.r(), imm(perLoop));
+    c->jb(L_TailLoop);
+  }
+
+  // Align 4 bytes dst to 8 bytes. We are using trict that if alignment
+  // fail, we will continue into main loop, because this type of alignment
+  // is usually used together with MMX or X64 modes (no SSE and unaligned
+  // exceptions here)
+  if (dstSize == 4 && align == 8)
+  {
+    c->mov(tmp.x(), dst.r());
+    c->and_(tmp.r(), imm(7));
+    c->jz(L_MainEntry);
+    tmp.unuse();
+
+    module->processPixelsPtr(dst, src, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->add(src.r(), imm(srcSize));
+    c->sub(cnt.r(), imm(1));
+  }
+  // Align 4 bytes dst to 16 bytes. This is hardest job, because we must
+  // ensure that destination is aligned for instructions that needs it.
+  // This is reason for last check and bail into tail loop if destination
+  // is totally misaligned (this shouldn't happpen, but we must be sure).
+  else if (dstSize == 4 && align == 16)
+  {
+    // Calculate how many pixels needs to be aligned
+    c->xor_(tmp.x(), tmp.x());
+    c->sub(tmp.r(), dst.r());
+    c->and_(tmp.r(), imm(15));
+    // Alignment not needed, jump to main loop entry
+    c->jz(L_MainEntry);
+
+    c->shr(tmp.r(), imm(2));
+    c->sub(cnt.r(), tmp.r());
+
+    Label* L_AlignLoop = c->newLabel();
+    c->bind(L_AlignLoop);
+    module->processPixelsPtr(dst, src, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->add(src.r(), imm(srcSize));
+    c->sub(tmp.r(), imm(1));
+    c->jnz(L_AlignLoop);
+
+    // Make sure that dst is aligned to 16 bytes
+    c->mov(tmp.x(), dst.r());
+    c->and_(tmp.r(), imm(15));
+
+    if (module->complexity() == Module::Simple)
+    {
+      L_Misaligned = c->newLabel();
+      c->jnz(L_Misaligned);
+    }
+    else
+    {
+      c->jnz(L_TailLoop);
+    }
+    tmp.unuse();
+  }
+  // TODO: Not implemented
+  else if (align)
+  {
+    BLITJIT_ASSERT(0);
+  }
+
+  // Main Loop
+  if (perLoop > 1)
+  {
+    // More pixels at a time
+    c->bind(L_MainEntry);
+    c->sub(cnt.r(), imm(perLoop));
+    c->jc(L_TailEntry);
+
+    c->bind(L_MainLoop);
+
+    if (_prefetch && module->prefetchSrc()) c->prefetch(ptr(src.r(), perLoop * srcSize), PREFETCH_T0);
+    if (_prefetch && module->prefetchDst()) c->prefetch(ptr(dst.r(), perLoop * dstSize), PREFETCH_T0);
+
+    module->processPixelsPtr(dst, src, perLoop, 0, kind, Module::DstAligned);
+    c->add(dst.r(), imm(perLoop * dstSize));
+    c->add(src.r(), imm(perLoop * srcSize));
+    c->sub(cnt.r(), imm(perLoop));
+    c->jnc(L_MainLoop);
+  }
+  else
+  {
+    // One pixel at a time
+    c->bind(L_MainLoop);
+    module->processPixelsPtr(dst, src, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->add(src.r(), imm(srcSize));
+    c->sub(cnt.r(), imm(1));
+    c->jnz(L_MainLoop);
+  }
+
+  if (L_Misaligned)
+  {
+    OutsideBlock block(c);
+    Label* L_MisalignedLoop = c->newLabel();
+
+    // More pixels at a time
+    c->bind(L_Misaligned);
+    c->sub(cnt.r(), imm(perLoop));
+    c->jc(L_TailEntry);
+
+    c->bind(L_MisalignedLoop);
+
+    if (_prefetch && module->prefetchSrc()) c->prefetch(ptr(src.r(), perLoop * srcSize), PREFETCH_T0);
+    if (_prefetch && module->prefetchDst()) c->prefetch(ptr(dst.r(), perLoop * dstSize), PREFETCH_T0);
+
+    module->processPixelsPtr(dst, src, perLoop, 0, kind, 0);
+    c->add(dst.r(), imm(perLoop * dstSize));
+    c->add(src.r(), imm(perLoop * srcSize));
+    c->sub(cnt.r(), imm(perLoop));
+    c->jnc(L_MisalignedLoop);
+    c->jmp(L_TailEntry);
+  }
+
+  // Tail (only if more pixels at a time loop is used)
+  if (perLoop == 1)
+  {
+    // NOP
+  }
+  else if (perLoop == 2)
+  {
+    // Two pixels at a time, it's only needed to process remaining pixel
+    c->bind(L_TailEntry);
+    c->add(cnt.r(), imm(2));
+    c->jz(L_End);
+
+    c->bind(L_TailLoop);
+    module->processPixelsPtr(dst, src, 1, 0, kind, 0);
+    if (loop.finalizePointers)
+    {
+      c->add(dst.r(), imm(dstSize));
+      c->add(src.r(), imm(srcSize));
+    }
+  }
+  else if (module->complexity() == Module::Simple)
+  {
+    SysInt i = perLoop;
+
+    // Jump table based loop for simple operators
+    c->bind(L_TailEntry);
+    c->add(cnt.r(), imm(perLoop));
+    c->jz(L_End);
+
+    c->bind(L_TailLoop);
+
+    if (i > 8)
+    {
+      JumpTable* jumpTable = c->newJumpTable();
+      Label* L_Skip = c->newLabel();
+      jumpTable->addLabel(L_Skip, 0);
+
+      tmp.use(c->newVariable(VARIABLE_TYPE_SYSINT));
+      c->mov(tmp.x(), cnt.r());
+      c->shr(tmp.r(), 2);
+      c->jumpToTable(jumpTable, tmp.r());
+      tmp.unuse();
+
+      for (SysInt j = (i / 4) - 1; j > 0; j--, i -= 4)
+      {
+        c->bind(jumpTable->addLabel(NULL, j));
+        module->processPixelsPtr(dst, src, 4, 0, kind, 0);
+        c->add(dst.r(), imm(dstSize * 4));
+        c->add(src.r(), imm(srcSize * 4));
+      }
+      c->and_(cnt.r(), 3);
+      c->bind(L_Skip);
+    }
+
+    // Last few pixels will be processed through jump table
+    {
+      JumpTable* jumpTable = c->newJumpTable();
+      jumpTable->addLabel(L_End, 0);
+
+      // cnt is modified by jumpToTable().
+      c->jumpToTable(jumpTable, cnt.r());
+
+      for (i--; i > 0; i--)
+      {
+        c->bind(jumpTable->addLabel(NULL, i));
+        module->processPixelsPtr(dst, src, 1, 0, kind, 0);
+        c->add(dst.r(), imm(dstSize));
+        c->add(src.r(), imm(srcSize));
+      }
+    }
+  }
+  else
+  {
+    // Complex operators
+    c->bind(L_TailEntry);
+    c->add(cnt.r(), imm(perLoop));
+    c->jz(L_End);
+
+    c->bind(L_TailLoop);
+    module->processPixelsPtr(dst, src, 1, 0, kind, 0);
+    c->add(dst.r(), imm(dstSize));
+    c->add(src.r(), imm(srcSize));
+    c->sub(cnt.r(), imm(1));
+    c->jnz(L_TailLoop);
+  }
+
+  // End
+  c->bind(L_End);
 }
 
 // ============================================================================
 // [BlitJit::Generator - Mov Helpers]
 // ============================================================================
 
-void Generator::_StreamMov(const Mem& dst, const Register& src)
+void Generator::_LoadMov(const Register& dst, const Mem& src)
 {
-  if (nonThermalHint && (features & AsmJit::CpuInfo::Feature_SSE2) != 0)
+  c->mov(dst, src);
+}
+
+void Generator::_LoadMovQ(const MMRegister& dst, const Mem& src)
+{
+  c->movq(dst, src);
+}
+
+void Generator::_LoadMovDQ(const XMMRegister& dst, const Mem& src, bool aligned)
+{
+  if (aligned)
+    c->movdqa(dst, src);
+  else
+    c->movdqu(dst, src);
+}
+
+void Generator::_StoreMov(const Mem& dst, const Register& src, bool nt)
+{
+  if (nt && (_features & AsmJit::CpuInfo::Feature_SSE2) != 0)
   {
     c->movnti(dst, src);
+    f->setSfence(true);
   }
   else
   {
@@ -1470,12 +2238,14 @@ void Generator::_StreamMov(const Mem& dst, const Register& src)
   }
 }
 
-void Generator::_StreamMovQ(const Mem& dst, const MMRegister& src)
+void Generator::_StoreMovQ(const Mem& dst, const MMRegister& src, bool nt)
 {
-  if (nonThermalHint && (features & (AsmJit::CpuInfo::Feature_SSE | 
-                                     AsmJit::CpuInfo::Feature_3dNow)) != 0)
+  if (nt && (_features & (
+      AsmJit::CpuInfo::Feature_SSE |
+      AsmJit::CpuInfo::Feature_3dNow)) != 0)
   {
     c->movntq(dst, src);
+    f->setSfence(true);
   }
   else
   {
@@ -1483,700 +2253,22 @@ void Generator::_StreamMovQ(const Mem& dst, const MMRegister& src)
   }
 }
 
-void Generator::_StreamMovDQ(const Mem& dst, const XMMRegister& src)
+void Generator::_StoreMovDQ(const Mem& dst, const XMMRegister& src, bool nt, bool aligned)
 {
-  if (nonThermalHint)
+  if (nt && aligned)
   {
     c->movntdq(dst, src);
+    f->setSfence(true);
   }
-  else
+  else if (aligned)
   {
     c->movdqa(dst, src);
   }
-}
-
-// ============================================================================
-// [BlitJit::Generator - MemSet Helpers]
-// ============================================================================
-
-void Generator::_MemSet32(PtrRef& dst, Int32Ref& src, SysIntRef& cnt)
-{
-  StateRef state(f->saveState());
-
-  SysIntRef tmp(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
-  tmp.alloc();
-
-  Label* L1 = c->newLabel();
-  Label* L2 = c->newLabel();
-
-  c->cmp(cnt.r(), 8);
-  c->jl(L2);
-
-  c->mov(tmp.r(), cnt.r());
-  c->shr(cnt.r(), 3);
-  c->and_(tmp.r(), 7);
-
-  // Unrolled loop, we are using align 4 here, because this path will be 
-  // generated only for older CPUs.
-  c->align(4);
-  c->bind(L1);
-
-  c->mov(dword_ptr(dst.r(),  0), src.r());
-  c->mov(dword_ptr(dst.r(),  4), src.r());
-  c->mov(dword_ptr(dst.r(),  8), src.r());
-  c->mov(dword_ptr(dst.r(), 12), src.r());
-  c->mov(dword_ptr(dst.r(), 16), src.r());
-  c->mov(dword_ptr(dst.r(), 20), src.r());
-  c->mov(dword_ptr(dst.r(), 24), src.r());
-  c->mov(dword_ptr(dst.r(), 28), src.r());
-
-  c->add(dst.r(), 32);
-  c->dec(cnt.r());
-  c->jnz(L1);
-
-  c->mov(cnt.r(), tmp.r());
-  c->jz(c->currentFunction()->exitLabel());
-
-  // Tail
-  c->align(4);
-  c->bind(L2);
-
-  c->mov(dword_ptr(dst.r()), src.r());
-
-  c->add(dst.r(), 4);
-  c->dec(cnt.r());
-  c->jnz(L2);
-}
-
-// ============================================================================
-// [BlitJit::Generator - MemCpy Helpers]
-// ============================================================================
-
-void Generator::_MemCpy32(PtrRef& dst, PtrRef& src, SysIntRef& cnt)
-{
-  // Alloc variables if they are not allocated before
-  dst.alloc(VARIABLE_ALLOC_READ);
-  src.alloc(VARIABLE_ALLOC_READ);
-  cnt.alloc(VARIABLE_ALLOC_READ);
-  f->clearPrevented();
-
-  // Save state
-  StateRef state(f->saveState());
-
-  // --------------------------------------------------------------------------
-  // [MemCopy32 - X86]
-  // --------------------------------------------------------------------------
-  if (optimize == OptimizeX86)
-  {
-    Int32Ref tmp(f->newVariable(VARIABLE_TYPE_INT32, 0));
-
-    Label* L_Loop = c->newLabel();
-    c->bind(L_Loop);
-
-    c->mov(tmp.r(), dword_ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(dword_ptr(dst.r()), tmp.r());
-    c->add(dst.r(), 4);
-
-    c->dec(cnt.r());
-    c->jnz(L_Loop);
-  }
-
-  // --------------------------------------------------------------------------
-  // [MemCopy32 - MMX]
-  // --------------------------------------------------------------------------
-  else if (optimize == OptimizeMMX)
-  {
-    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
-
-    MMRef _v0(f->newVariable(VARIABLE_TYPE_MM, 0));
-    MMRef _v1(f->newVariable(VARIABLE_TYPE_MM, 0));
-    MMRef _v2(f->newVariable(VARIABLE_TYPE_MM, 0));
-    MMRef _v3(f->newVariable(VARIABLE_TYPE_MM, 0));
-
-    MMRegister v0 = _v0.x();
-    MMRegister v1 = _v1.x();
-    MMRegister v2 = _v2.x();
-    MMRegister v3 = _v3.x();
-
-    Label* L_Aligned = c->newLabel();
-    Label* L_Loop    = c->newLabel();
-    Label* L_Tail    = c->newLabel();
-    Label* L_TailLoop= c->newLabel();
-    Label* L_TailEnd = c->newLabel();
-    Label* L_Exit    = c->newLabel();
-
-    Int32 mainLoopSize = 64;
-    Int32 i;
-
-    // ------------------------------------------------------------------------
-    // [Align]
-    // ------------------------------------------------------------------------
-
-    c->mov(t.r(), dst.r());
-    c->and_(t.r(), 7);
-    c->jz(L_Aligned, HINT_TAKEN);
-
-    c->dec(cnt.r());
-
-    c->mov(t.r32(), ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(ptr(dst.r()), t.r32());
-    c->add(dst.r(), 4);
-
-    c->bind(L_Aligned);
-
-    // ------------------------------------------------------------------------
-    // [Loop]
-    // ------------------------------------------------------------------------
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jc(L_Tail, HINT_NOT_TAKEN);
-
-    c->align(16);
-    c->bind(L_Loop);
-
-    if (prefetch) 
-    {
-      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-    }
-
-    for (i = 0; i < mainLoopSize; i += 32)
-    {
-      c->movq(v0, ptr(src.r(), i +  0));
-      c->movq(v1, ptr(src.r(), i +  8));
-      c->movq(v2, ptr(src.r(), i + 16));
-      c->movq(v3, ptr(src.r(), i + 24));
-      _StreamMovQ(ptr(dst.r(), i +  0), v0);
-      _StreamMovQ(ptr(dst.r(), i +  8), v1);
-      _StreamMovQ(ptr(dst.r(), i + 16), v2);
-      _StreamMovQ(ptr(dst.r(), i + 24), v3);
-    }
-
-    c->add(src.r(), mainLoopSize);
-    c->add(dst.r(), mainLoopSize);
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jnc(L_Loop);
-
-    // ------------------------------------------------------------------------
-    // [Tail]
-    // ------------------------------------------------------------------------
-
-    c->add(cnt.r(), mainLoopSize / 4);
-    c->jz(L_Exit);
-
-    c->bind(L_Tail);
-    c->sub(cnt.r(), 2);
-    c->jc(L_TailEnd);
-
-    c->bind(L_TailLoop);
-
-    c->movq(v0, ptr(src.r()));
-    c->add(src.r(), 8);
-    _StreamMovQ(ptr(dst.r()), v0);
-    c->add(dst.r(), 8);
-
-    c->sub(cnt.r(), 2);
-    c->jnc(L_TailLoop);
-
-    c->bind(L_TailEnd);
-
-    c->add(cnt.r(), 2);
-    c->jz(L_Exit);
-
-    c->mov(t.r32(), dword_ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(dword_ptr(dst.r()), t.r32());
-    c->add(dst.r(), 4);
-
-    c->bind(L_Exit);
-  }
-
-  // --------------------------------------------------------------------------
-  // [MemCopy32 - SSE2]
-  // --------------------------------------------------------------------------
-  else if (optimize == OptimizeSSE2)
-  {
-    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
-
-    XMMRef _v0(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _v1(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _v2(f->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _v3(f->newVariable(VARIABLE_TYPE_XMM, 0));
-
-    XMMRegister v0 = _v0.x();
-    XMMRegister v1 = _v1.x();
-    XMMRegister v2 = _v2.x();
-    XMMRegister v3 = _v3.x();
-
-    Label* L_Align   = c->newLabel();
-    Label* L_Aligned = c->newLabel();
-    Label* L_Loop    = c->newLabel();
-    Label* L_Tail    = c->newLabel();
-    Label* L_TailLoop= c->newLabel();
-    Label* L_TailEnd = c->newLabel();
-    Label* L_Loop_A  = c->newLabel();
-    Label* L_Exit    = c->newLabel();
-
-    Int32 mainLoopSize = 64;
-    Int32 i;
-
-    // ------------------------------------------------------------------------
-    // [Align]
-    // ------------------------------------------------------------------------
-
-    // For smaller size, we will use tail loop
-    c->cmp(cnt.r(), 16);
-    c->jl(L_Tail, HINT_NOT_TAKEN);
-
-    // This shouldn't happen, but we must be sure
-    c->mov(t.r(), 3);
-    c->and_(t.r(), dst.r());
-    c->jnz(L_Tail, HINT_NOT_TAKEN);
-
-    // Align 1
-    c->mov(t.r(), 15);
-    c->and_(t.r(), dst.r());
-    c->jz(L_Aligned);
-
-    c->mov(t.r32(), dword_ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(dword_ptr(dst.r()), t.r32());
-    c->add(dst.r(), 4);
-    c->dec(cnt.r());
-
-    // Align 2
-    c->mov(t.r(), 15);
-    c->and_(t.r(), dst.r());
-    c->jz(L_Aligned);
-
-    c->mov(t.r32(), dword_ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(dword_ptr(dst.r()), t.r32());
-    c->add(dst.r(), 4);
-    c->dec(cnt.r());
-
-    // Align 3
-    c->mov(t.r(), 15);
-    c->and_(t.r(), dst.r());
-    c->jz(L_Aligned);
-
-    c->mov(t.r32(), dword_ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(dword_ptr(dst.r()), t.r32());
-    c->add(dst.r(), 4);
-    c->dec(cnt.r());
-
-    c->bind(L_Aligned);
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jc(L_Tail, HINT_NOT_TAKEN);
-
-    c->mov(t.r(), 15);
-    c->and_(t.r(), src.r());
-    c->jz(L_Loop_A);
-
-    // ------------------------------------------------------------------------
-    // [Loop]
-    // ------------------------------------------------------------------------
-
-    c->align(16);
-    c->bind(L_Loop);
-
-    if (prefetch) 
-    {
-      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-    }
-
-    for (i = 0; i < mainLoopSize; i += 64)
-    {
-      c->movdqu(v0, ptr(src.r(), i +  0));
-      c->movdqu(v1, ptr(src.r(), i + 16));
-      c->movdqu(v2, ptr(src.r(), i + 32));
-      c->movdqu(v3, ptr(src.r(), i + 48));
-
-      _StreamMovDQ(ptr(dst.r(), i +  0), v0);
-      _StreamMovDQ(ptr(dst.r(), i + 16), v1);
-      _StreamMovDQ(ptr(dst.r(), i + 32), v2);
-      _StreamMovDQ(ptr(dst.r(), i + 48), v3);
-    }
-
-    c->add(src.r(), mainLoopSize);
-    c->add(dst.r(), mainLoopSize);
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jnc(L_Loop);
-
-    // ------------------------------------------------------------------------
-    // [Tail]
-    // ------------------------------------------------------------------------
-
-    c->add(cnt.r(), mainLoopSize / 4);
-    c->jz(L_Exit);
-
-    c->bind(L_Tail);
-    c->sub(cnt.r(), 2);
-    c->jc(L_TailEnd);
-
-    c->bind(L_TailLoop);
-#if defined(ASMJIT_X86)
-    c->mov(t.r32(), dword_ptr(src.r()));
-    _StreamMov(dword_ptr(dst.r()), t.r32());
-    c->mov(t.r32(), dword_ptr(src.r(), 4));
-    c->add(src.r(), 8);
-    _StreamMov(dword_ptr(dst.r(), 4), t.r32());
-    c->add(dst.r(), 8);
-#else
-    c->mov(t.r64(), qword_ptr(src.r()));
-    c->add(src.r(), 8);
-    _StreamMov(qword_ptr(dst.r()), t.r64());
-    c->add(dst.r(), 8);
-#endif
-    c->sub(cnt.r(), 2);
-    c->jnc(L_TailLoop);
-
-    c->bind(L_TailEnd);
-    c->add(cnt.r(), 2);
-    c->jz(L_Exit);
-
-    c->mov(t.r32(), dword_ptr(src.r()));
-    c->add(src.r(), 4);
-    _StreamMov(dword_ptr(dst.r()), t.r32());
-    c->add(dst.r(), 4);
-    c->jmp(L_Exit);
-
-    // Aligned Loop (Fastest possible)
-    c->align(16);
-    c->bind(L_Loop_A);
-
-    if (prefetch) 
-    {
-      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-    }
-
-    for (i = 0; i < mainLoopSize; i += 64)
-    {
-      c->movdqa(v0, ptr(src.r(), i +  0));
-      c->movdqa(v1, ptr(src.r(), i + 16));
-      c->movdqa(v2, ptr(src.r(), i + 32));
-      c->movdqa(v3, ptr(src.r(), i + 48));
-      _StreamMovDQ(ptr(dst.r(), i +  0), v0);
-      _StreamMovDQ(ptr(dst.r(), i + 16), v1);
-      _StreamMovDQ(ptr(dst.r(), i + 32), v2);
-      _StreamMovDQ(ptr(dst.r(), i + 48), v3);
-    }
-
-    c->add(src.r(), mainLoopSize);
-    c->add(dst.r(), mainLoopSize);
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jnc(L_Loop_A);
-
-    c->add(cnt.r(), mainLoopSize / 4);
-    c->jnz(L_Tail);
-
-    c->bind(L_Exit);
-  }
-}
-
-// ============================================================================
-// [BlitJit::Generator - Composite32]
-// ============================================================================
-
-void Generator::_Composite32_SSE2(
-  PtrRef& dst, PtrRef& src, SysIntRef& cnt,
-  GeneratorOp_Composite32_SSE2& c_op)
-{
-  StateRef state(f->saveState());
-
-  XMMRef dstpix0(f->newVariable(VARIABLE_TYPE_XMM, 5));
-  XMMRef srcpix0(f->newVariable(VARIABLE_TYPE_XMM, 5));
-  XMMRef dstpix1(f->newVariable(VARIABLE_TYPE_XMM, 5));
-  XMMRef srcpix1(f->newVariable(VARIABLE_TYPE_XMM, 5));
-
-  Label* L_Align   = c->newLabel();
-  Label* L_Aligned = c->newLabel();
-  Label* L_Loop    = c->newLabel();
-  Label* L_Tail    = c->newLabel();
-  Label* L_Exit    = c->newLabel();
-
-  Int32 mainLoopSize = 16;
-
-  Int32 i;
-  UInt32 maxPixelsInLoop = c_op.maxPixelsInLoop;
-
-  // Allocate XMM registers 
-  dstpix0.alloc();
-  srcpix0.alloc();
-
-  // ------------------------------------------------------------------------
-  // [Align]
-  // ------------------------------------------------------------------------
-
-  if (maxPixelsInLoop >= 2)
-  {
-    SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT));
-
-    // For small size, we will use tail loop
-    if (maxPixelsInLoop >= 4)
-    {
-      c->cmp(cnt.r(), 4);
-      c->jl(L_Tail);
-
-      c->xor_(t.r(), t.r());
-      c->sub(t.r(), dst.r());
-      c->and_(t.r(), 15);
-      c->jz(L_Aligned);
-
-      c->shr(t.r(), 2);
-      c->sub(cnt.r(), t.r());
-    }
-    else
-    {
-      c->mov(t.r(), dst.r());
-      c->and_(t.r(), 7);
-      c->jz(L_Aligned);
-    }
-
-    c->bind(L_Align);
-
-    c->movd(srcpix0.x(), ptr(src.r()));
-    c->movd(dstpix0.x(), ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), false);
-    c->movd(ptr(dst.r()), dstpix0.r());
-
-    c->add(src.r(), 4);
-    c->add(dst.r(), 4);
-
-    if (maxPixelsInLoop >= 4)
-    {
-      c->dec(t.r());
-      c->jnz(L_Align);
-    }
-
-    if (maxPixelsInLoop >= 4)
-    {
-      // This shouldn't happen, because we are expecting 16 byte alignment in 
-      // main loop, but we must be sure! If destination is not aligned, we will
-      // use tail loop that is slow, but processor will be happy.
-      c->mov(t.r(), dst.r());
-      c->and_(t.r(), 3);
-      c->jnz(L_Tail);
-    }
-
-    c->bind(L_Aligned);
-  }
-
-  // ------------------------------------------------------------------------
-  // [Loop]
-  // ------------------------------------------------------------------------
-
-  if (maxPixelsInLoop >= 4)
-  {
-    dstpix1.alloc();
-    srcpix1.alloc();
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jc(L_Tail);
-
-    // Loop - Src is Unaligned
-    c->align(16);
-    c->bind(L_Loop);
-
-    if (prefetch) 
-    {
-      c->prefetch(ptr(src.r(), mainLoopSize), PREFETCH_T0);
-      c->prefetch(ptr(dst.r(), mainLoopSize), PREFETCH_T0);
-    }
-
-    for (i = 0; i < mainLoopSize; i += 16)
-    {
-      State* state = f->saveState();
-      Label* L_LocalLoopExit = c->newLabel();
-
-      c->movdqu(srcpix0.x(), ptr(src.r(), i + 0));
-
-      // This can improve speed by skipping pixels of zero or full alpha
-      if (c_op.op == Operation::CompositeOver)
-      {
-        Label* L_1 = c->newLabel();
-
-        c->pcmpeqb(dstpix0.r(), dstpix0.r());
-        c->pxor(dstpix1.r(), dstpix1.r());
-
-        c->pcmpeqb(dstpix0.r(), srcpix0.r());
-        c->pcmpeqb(dstpix1.r(), srcpix0.r());
-
-        {
-          SysIntRef t(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
-          SysIntRef k(f->newVariable(VARIABLE_TYPE_SYSINT, 0));
-
-          c->pmovmskb(k.r32(), dstpix0.r());
-          c->pmovmskb(t.r32(), dstpix1.r());
-
-          c->and_(k.r32(), 0x8888);
-          c->cmp(t.r32(), 0xFFFF);
-          c->jz(L_LocalLoopExit);
-
-          c->cmp(k.r32(), 0x8888);
-          c->jnz(L_1);
-        }
-
-        c->movdqa(ptr(dst.r(), i + 0), srcpix0.r());
-        c->jmp(L_LocalLoopExit);
-
-        c->bind(L_1);
-      }
-
-      c->movdqa(dstpix0.x(), ptr(dst.r(), i + 0));
-
-      // Source and destination is in srcpix0 and dstpix0, also we want to
-      // pack destination to dstpix0.
-      c_op.doPixelRaw_4(dstpix0.r(), srcpix0.r(), dstpix1.r(), srcpix1.r(),
-        GeneratorOp_Composite32_SSE2::Raw4UnpackFromSrc0 |
-        GeneratorOp_Composite32_SSE2::Raw4UnpackFromDst0 |
-        GeneratorOp_Composite32_SSE2::Raw4PackToDst0);
-
-      c->movdqa(ptr(dst.r(), i + 0), dstpix0.r());
-
-      c->bind(L_LocalLoopExit);
-      f->restoreState(state);
-    }
-
-    c->add(src.r(), mainLoopSize);
-    c->add(dst.r(), mainLoopSize);
-
-    c->sub(cnt.r(), mainLoopSize / 4);
-    c->jnc(L_Loop, HINT_TAKEN);
-
-    c->add(cnt.r(), mainLoopSize / 4);
-    c->jz(L_Exit);
-
-    dstpix1.unuse();
-    srcpix1.unuse();
-  }
-
-  // ------------------------------------------------------------------------
-  // [Tail]
-  // ------------------------------------------------------------------------
-
-  if (maxPixelsInLoop >= 2)
-  {
-    Label* L_TailSkip = c->newLabel();
-
-    c->sub(cnt.r(), 2);
-    c->jc(L_TailSkip);
-
-    c->align(8);
-    c->bind(L_Tail);
-
-    c->movq(srcpix0.x(), ptr(src.r()));
-    c->movq(dstpix0.x(), ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), true);
-    c->movq(ptr(dst.r()), dstpix0.r());
-
-    c->add(src.r(), 8);
-    c->add(dst.r(), 8);
-    c->sub(cnt.r(), 2);
-    c->jnc(L_Tail);
-
-    c->bind(L_TailSkip);
-    c->add(cnt.r(), 2);
-    c->jz(L_Exit);
-
-    c->movd(srcpix0.x(), ptr(src.r()));
-    c->movd(dstpix0.x(), ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), false);
-    c->movd(ptr(dst.r()), dstpix0.r());
-
-    c->add(src.r(), 4);
-    c->add(dst.r(), 4);
-  }
   else
   {
-    c->align(8);
-    c->bind(L_Tail);
-
-    c->movd(srcpix0.x(), ptr(src.r()));
-    c->movd(dstpix0.x(), ptr(dst.r()));
-    c_op.doPixelRaw(dstpix0.r(), srcpix0.r(), false);
-    c->movd(ptr(dst.r()), dstpix0.r());
-
-    c->add(src.r(), 4);
-    c->add(dst.r(), 4);
-    c->dec(cnt.r());
-    c->jnz(L_Tail);
-  }
-
-  c->bind(L_Exit);
-}
-
-/*
-
-
-void Generator::xmmExpandAlpha_0000AAAA(const XMMRegister& r)
-{
-  // r = [  ][  ][  ][  ][  ][  ][  ][0A]
-
-  if ((features & CpuInfo::Feature_SSE) != 0)
-  {
-    // r = [  ][  ][  ][  ][0A][0A][0A][0A]
-    c->pshufd(r, r, mm_shuffle(0, 0, 0, 0));
-  }
-  else
-  {
-    // r = [  ][  ][  ][  ][  ][  ][0A][0A]
-    c->punpcklwd(r, r);
-    // r = [  ][  ][  ][  ][0A][0A][0A][0A]
-    c->punpckldq(r, r);
+    c->movdqu(dst, src);
   }
 }
-
-void Generator::xmmExpandAlpha_AAAAAAAA(const XMMRegister& r)
-{
-  // r = [  ][  ][  ][  ][0A][0A][0A][0A]
-  xmmExpandAlpha_0000AAAA(r);
-  // r = [0A][0A][0A][0A][0A][0A][0A][0A]
-  c->punpcklqdq(r, r);
-}
-
-void Generator::xmmExpandAlpha_00001AAA(const XMMRegister& r, const XMMRegister& c0)
-{
-  // (r)                      // r = [  ][  ][  ][  ][  ][  ][  ][0A]
-  c->punpcklwd(r, r);         // r = [  ][  ][  ][  ][  ][  ][0A][0A]
-  c->punpckldq(r, r);         // r = [  ][  ][  ][  ][0A][0A][0A][0A]
-}
-void Generator::xmmExpandAlpha_1AAA1AAA(const XMMRegister& r, const XMMRegister& c0)
-{
-}
-
-void Generator::xmmLerp2(
-  const XMMRegister& dst0, const XMMRegister& src0, const XMMRegister& alpha0)
-{
-  c->psubw(src0, dst0);       // src0 -= dst0
-  c->pmullw(src0, alpha0);    // src0 *= alpha0
-  c->psllw(dst0, 8);          // dst0 *= 256
-  c->paddw(dst0, src0);       // dst0 += src0
-  c->psrlw(dst0, 8);          // dst0 /= 256
-}
-
-void Generator::xmmLerp4(
-  const XMMRegister& dst0, const XMMRegister& src0, const XMMRegister& alpha0,
-  const XMMRegister& dst1, const XMMRegister& src1, const XMMRegister& alpha1)
-{
-  c->psubw(src0, dst0);       // src0 -= dst0
-  c->psubw(src1, dst1);       // src1 -= dst1
-  c->pmullw(src0, alpha0);    // src0 *= alpha0
-  c->pmullw(src1, alpha1);    // src1 *= alpha1
-  c->psllw(dst0, 8);          // dst0 *= 256
-  c->psllw(dst1, 8);          // dst1 *= 256
-  c->paddw(dst0, src0);       // dst0 += src0
-  c->paddw(dst1, src1);       // dst1 += src1
-  c->psrlw(dst0, 8);          // dst0 /= 256
-  c->psrlw(dst1, 8);          // dst1 /= 256
-}
-*/
 
 // ==========================================================================
 // [BlitJit::Generator - Constants Management]
@@ -2185,19 +2277,19 @@ void Generator::xmmLerp4(
 void Generator::usingConstants()
 {
   // Don't initialize it more times
-  if (body & BodyUsingConstants) return;
+  if (_body & BodyUsingConstants) return;
 
 #if defined(BLITJIT_X86)
   // 32-bit mode: Nop
 #else
   // 64-bit mode: Allocate register and set custom alloc/spill functions.
   // TODO:
-  _rConstantsAddress.use(f->newVariable(VARIABLE_TYPE_PTR, 0));
+  _rConstantsAddress.use(c->newVariable(VARIABLE_TYPE_PTR, 0));
   c->mov(_rConstantsAddress.x(), imm((SysInt)Api::constants));
 #endif
 
   // Initialized, this will prevent us to do initialization more times
-  body |= BodyUsingConstants;
+  _body |= BodyUsingConstants;
 }
 
 Mem Generator::getConstantsOperand(SysInt displacement)
@@ -2232,6 +2324,31 @@ static void customAlloc_zero(Variable* v)
     {
       XMMRegister r = mk_xmm(v->registerCode());
       c->pxor(r, r);
+      break;
+    }
+  }
+}
+
+static void customAlloc_const(Variable* v)
+{
+  Compiler* c = v->compiler();
+
+  Generator* g = (Generator*)v->dataPtr();
+  SysInt displacement = v->dataInt();
+
+  switch (v->type())
+  {
+    case VARIABLE_TYPE_MM:
+    {
+      MMRegister r = mk_mm(v->registerCode());
+      c->movq(r, g->getConstantsOperand(displacement));
+      break;
+    }
+    case VARIABLE_TYPE_XMM:
+    {
+      XMMRegister r = mk_xmm(v->registerCode());
+      c->movdqa(r, g->getConstantsOperand(displacement));
+      break;
     }
   }
 }
@@ -2244,31 +2361,251 @@ static void customSpill_none(Variable* v)
 void Generator::usingMMZero()
 {
   // Don't initialize it more times
-  if (body & BodyUsingMMZero) return;
+  if (_body & BodyUsingMMZero) return;
 
   // MM register with custom alloc / spill
-  _mmZero.use(f->newVariable(VARIABLE_TYPE_MM, 20));
+  _mmZero.use(c->newVariable(VARIABLE_TYPE_MM, 20));
   _mmZero.setAllocFn(customAlloc_zero);
   _mmZero.setSpillFn(customSpill_none);
   _mmZero.alloc();
 
   // Initialized, this will prevent us to do initialization more times
-  body |= BodyUsingMMZero;
+  _body |= BodyUsingMMZero;
 }
 
 void Generator::usingXMMZero()
 {
   // Don't initialize it more times
-  if (body & BodyUsingXMMZero) return;
+  if (_body & BodyUsingXMMZero) return;
 
   // XMM register with custom alloc / spill
-  _xmmZero.use(f->newVariable(VARIABLE_TYPE_XMM, 20));
+  _xmmZero.use(c->newVariable(VARIABLE_TYPE_XMM, 20));
   _xmmZero.setAllocFn(customAlloc_zero);
   _xmmZero.setSpillFn(customSpill_none);
   _xmmZero.alloc();
 
   // Initialized, this will prevent us to do initialization more times
-  body |= BodyUsingXMMZero;
+  _body |= BodyUsingXMMZero;
+}
+
+void Generator::usingXMM0080()
+{
+  // Don't initialize it more times
+  if (_body & BodyUsingXMM0080) return;
+
+  usingConstants();
+
+  // XMM register with custom alloc / spill
+  _xmm0080.use(c->newVariable(VARIABLE_TYPE_XMM, 20));
+  _xmm0080.setAllocFn(customAlloc_const);
+  _xmm0080.setSpillFn(customSpill_none);
+  _xmm0080.setDataPtr((void*)this);
+  _xmm0080.setDataInt(BLITJIT_DISPCONST(Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+  _xmm0080.alloc();
+
+  // Initialized, this will prevent us to do initialization more times
+  _body |= BodyUsingXMM0080;
+}
+
+// ==========================================================================
+// [BlitJit::Generator - Generator Helpers]
+// ==========================================================================
+
+void Generator::_ExtractAlpha(
+  const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0, bool two)
+{
+  c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+  if (two) c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+
+  if (negate0) c->pxor(dst0, BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+}
+
+void Generator::_ExtractAlpha_4(
+  const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0,
+  const XMMRegister& dst1, const XMMRegister& src1, UInt8 alphaPos1, UInt8 negate1)
+{
+  c->pshuflw(dst0, src0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+  c->pshuflw(dst1, src1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
+
+  c->pshufhw(dst0, dst0, mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+  c->pshufhw(dst1, dst1, mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
+
+  if (negate0) c->pxor(dst0, BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+  if (negate1) c->pxor(dst1, BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+}
+
+void Generator::_PackedMultiply(
+  const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
+  bool moveToT0)
+{
+  XMMRegister r = xmm0080().c();
+
+  c->pmullw(a0, b0);          // a0 *= b0
+  c->paddusw(a0, r);          // a0 += 80
+  c->movdqa(t0, a0);          // t0  = a0
+  c->psrlw(a0, 8);            // a0 /= 256
+  if (!moveToT0)
+  {
+    c->paddusw(a0, t0);       // a0 += t0
+    c->psrlw(a0, 8);          // a0 /= 256
+  }
+  else
+  {
+    c->paddusw(t0, a0);       // t0 += a0
+    c->psrlw(t0, 8);          // t0 /= 256
+  }
+}
+
+void Generator::_PackedMultiplyWithAddition(
+  const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0)
+{
+  XMMRegister r = xmm0080().c();
+
+  c->movdqa(t0, a0);
+  c->pmullw(a0, b0);          // a0 *= b0
+  c->paddusw(a0, r);          // a0 += 80
+  c->paddusw(b0, t0);
+  c->movdqa(t0, a0);          // t0  = a0
+  c->psrlw(a0, 8);            // a0 /= 256
+  c->paddusw(a0, t0);         // a0 += t0
+  c->psrlw(a0, 8);            // a0 /= 256
+  c->paddusw(a0, b0);
+}
+
+void Generator::_PackedMultiply_4(
+  const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
+  const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1,
+  bool moveToT0T1)
+{
+  XMMRegister r = xmm0080().c();
+
+  // Standard case
+  if (t0 != t1)
+  {
+    c->pmullw(a0, b0);          // a0 *= b0
+    c->pmullw(a1, b1);          // a1 *= b1
+
+    c->paddusw(a0, r);          // a0 += 80
+    c->paddusw(a1, r);          // a1 += 80
+
+    c->movdqa(t0, a0);          // t0  = a0
+    c->psrlw(a0, 8);            // a0 /= 256
+    c->movdqa(t1, a1);          // t1  = a1
+    c->psrlw(a1, 8);            // a1 /= 256
+
+    if (moveToT0T1)
+    {
+      c->paddusw(t0, a0);       // t0 += a0
+      c->psrlw(t0, 8);          // t0 /= 256
+
+      c->paddusw(t1, a1);       // t1 += a1
+      c->psrlw(t1, 8);          // t1 /= 256
+    }
+    else
+    {
+      c->paddusw(a0, t0);       // a0 += t0
+      c->paddusw(a1, t1);       // a1 += t1
+
+      c->psrlw(a0, 8);          // a0 /= 256
+      c->psrlw(a1, 8);          // a1 /= 256
+    }
+  }
+  // Special case if t0 is t1 (can be used to save one regiter if you
+  // haven't it)
+  else
+  {
+    const XMMRegister& t = t0;
+
+    // Can't be moved to t0 and t1 if they are same!
+    BLITJIT_ASSERT(moveToT0T1 == 0);
+
+    c->pmullw(a0, b0);          // a0 *= b0
+    c->pmullw(a1, b1);          // a1 *= b1
+    c->paddusw(a0, r);          // a0 += 80
+    c->paddusw(a1, r);          // a1 += 80
+
+    c->movdqa(t, a0);           // t   = a0
+    c->psrlw(a0, 8);            // a0 /= 256
+    c->paddusw(a0, t);          // a0 += t
+
+    c->movdqa(t, a1);           // t   = a1
+    c->psrlw(a1, 8);            // a1 /= 256
+    c->paddusw(a1, t);          // a1 += t
+
+    c->psrlw(a0, 8);            // a0 /= 256
+    c->psrlw(a1, 8);            // a1 /= 256
+  }
+}
+
+void Generator::_PackedMultiplyAdd(
+  const XMMRegister& a0, const XMMRegister& b0,
+  const XMMRegister& c0, const XMMRegister& d0,
+  const XMMRegister& t0, bool moveToT0)
+{
+  XMMRegister r = xmm0080().c();
+
+  c->pmullw(a0, b0);          // a0 *= b0
+  c->pmullw(c0, d0);          // c0 *= d0
+  c->paddusw(a0, r);          // a0 += 80
+  c->paddusw(a0, c0);         // a0 += c0
+
+  c->movdqa(t0, a0);          // t0  = a0
+  c->psrlw(a0, 8);            // a0 /= 256
+
+  if (!moveToT0)
+  {
+    c->paddusw(a0, t0);       // a0 += t0
+    c->psrlw(a0, 8);          // a0 /= 256
+  }
+  else
+  {
+    c->paddusw(t0, a0);       // t0 += a0
+    c->psrlw(t0, 8);          // t0 /= 256
+  }
+}
+
+void Generator::_PackedMultiplyAdd_4(
+  const XMMRegister& a0, const XMMRegister& b0,
+  const XMMRegister& c0, const XMMRegister& d0,
+  const XMMRegister& t0,
+  const XMMRegister& e0, const XMMRegister& f0,
+  const XMMRegister& g0, const XMMRegister& h0,
+  const XMMRegister& t1,
+  bool moveToT0T1)
+{
+  XMMRegister r = xmm0080().c();
+
+  c->pmullw(a0, b0);          // a0 *= b0
+  c->pmullw(c0, d0);          // c0 *= d0
+
+  c->pmullw(e0, f0);          // e0 *= f0
+  c->pmullw(g0, h0);          // g0 *= h0
+
+  c->paddusw(a0, r);          // a0 += 80
+  c->paddusw(e0, r);          // e0 += 80
+  c->paddusw(a0, c0);         // a0 += c0
+  c->paddusw(e0, g0);         // e0 += g0
+
+  c->movdqa(t0, a0);          // t0  = a0
+  c->movdqa(t1, e0);          // t1  = e0
+
+  c->psrlw(a0, 8);            // a0 /= 256
+  c->psrlw(e0, 8);            // e0 /= 256
+
+  if (!moveToT0T1)
+  {
+    c->paddusw(a0, t0);       // a0 += t0
+    c->paddusw(e0, t1);       // e0 += t1
+    c->psrlw(a0, 8);          // a0 /= 256
+    c->psrlw(e0, 8);          // e0 /= 256
+  }
+  else
+  {
+    c->paddusw(t0, a0);       // t0 += a0
+    c->paddusw(t1, e0);       // t1 += e0
+    c->psrlw(t0, 8);          // t0 /= 256
+    c->psrlw(t1, 8);          // t1 /= 256
+  }
 }
 
 } // BlitJit namespace

@@ -33,13 +33,12 @@
 #include <AsmJit/Logger.h>
 #include <AsmJit/MemoryManager.h>
 
-#include "Build.h"
-#include "Defs.h"
+#include "Api.h"
 #include "Generator.h"
 
 namespace BlitJit {
 
-//! @addtogroup BlitJit_Main
+//! @addtogroup BlitJit_Api
 //! @{
 
 struct BLITJIT_API CodeManager
@@ -63,11 +62,11 @@ struct BLITJIT_API CodeManager
   // Functions
   enum
   {
-    FillSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
-    FillRectFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
+    FillSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operator::Count,
+    FillRectFnCount = PixelFormat::Count * PixelFormat::Count * Operator::Count,
 
-    BlitSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count,
-    BlitRectFnCount = PixelFormat::Count * PixelFormat::Count * Operation::Count 
+    BlitSpanFnCount = PixelFormat::Count * PixelFormat::Count * Operator::Count,
+    BlitRectFnCount = PixelFormat::Count * PixelFormat::Count * Operator::Count 
   };
 
   // Cache
