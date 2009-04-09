@@ -87,7 +87,9 @@ typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
 
 //! @brief Fill rect function prototype.
 typedef void (BLITJIT_CALL *FillRectFn)(
-  void* dst, const void* src, SysUInt len);
+  void* dst, const void* src,
+  SysInt dstStride,
+  SysUInt width, SysUInt height);
 
 //! @brief Blit rect function prototype.
 typedef void (BLITJIT_CALL *BlitRectFn)(
@@ -106,27 +108,27 @@ typedef void (BLITJIT_CALL *BlitRectMaskFn)(
 // ============================================================================
 
 //! @brief Pixel format.
-struct PixelFormat
+struct BLITJIT_HIDDEN PixelFormat
 {
   inline const char* name() const { return _name; }
   inline UInt32 id() const { return _id; }
 
   inline UInt32 depth() const { return _depth; }
 
-  inline UInt32 rMask16() const { return (((UInt16)1U << _rSize) - 1) << _rShift; }
-  inline UInt32 gMask16() const { return (((UInt16)1U << _gSize) - 1) << _gShift; }
-  inline UInt32 bMask16() const { return (((UInt16)1U << _bSize) - 1) << _bShift; }
-  inline UInt32 aMask16() const { return (((UInt16)1U << _aSize) - 1) << _aShift; }
+  inline UInt16 rMask16() const { return (((UInt16)1U << _rSize) - 1) << _rShift; }
+  inline UInt16 gMask16() const { return (((UInt16)1U << _gSize) - 1) << _gShift; }
+  inline UInt16 bMask16() const { return (((UInt16)1U << _bSize) - 1) << _bShift; }
+  inline UInt16 aMask16() const { return (((UInt16)1U << _aSize) - 1) << _aShift; }
 
   inline UInt32 rMask32() const { return ((1U << _rSize) - 1) << _rShift; }
   inline UInt32 gMask32() const { return ((1U << _gSize) - 1) << _gShift; }
   inline UInt32 bMask32() const { return ((1U << _bSize) - 1) << _bShift; }
   inline UInt32 aMask32() const { return ((1U << _aSize) - 1) << _aShift; }
 
-  inline UInt32 rMask64() const { return (((UInt64)1U << _rSize) - 1) << _rShift; }
-  inline UInt32 gMask64() const { return (((UInt64)1U << _gSize) - 1) << _gShift; }
-  inline UInt32 bMask64() const { return (((UInt64)1U << _bSize) - 1) << _bShift; }
-  inline UInt32 aMask64() const { return (((UInt64)1U << _aSize) - 1) << _aShift; }
+  inline UInt64 rMask64() const { return (((UInt64)1U << _rSize) - 1) << _rShift; }
+  inline UInt64 gMask64() const { return (((UInt64)1U << _gSize) - 1) << _gShift; }
+  inline UInt64 bMask64() const { return (((UInt64)1U << _bSize) - 1) << _bShift; }
+  inline UInt64 aMask64() const { return (((UInt64)1U << _aSize) - 1) << _aShift; }
 
   inline UInt32 rShift() const { return _rShift; }
   inline UInt32 gShift() const { return _gShift; }
@@ -199,7 +201,7 @@ struct PixelFormat
 // ============================================================================
 
 //! @brief Operator.
-struct Operator
+struct BLITJIT_HIDDEN Operator
 {
   inline const char* name() const { return _name; }
   inline UInt32 id() const { return _id; }
@@ -369,8 +371,6 @@ struct Operator
     //! Da'  = Sa + Da - Sa.Da
     CompositeInvertRgb,
 
-    CompositeSaturate,
-
     //! @brief Count of operators.
     Count
   };
@@ -453,15 +453,15 @@ struct BLITJIT_API Api
     AsmJit::XMMData Cx00800080008000800080008000800080; // [0]
     AsmJit::XMMData Cx00FF00FF00FF00FF00FF00FF00FF00FF; // [1]
     
-    AsmJit::XMMData Cx000000FF00FF00FF000000FF00FF00FF; // [2]
-    AsmJit::XMMData Cx00FF000000FF00FF00FF000000FF00FF; // [3]
-    AsmJit::XMMData Cx00FF00FF000000FF00FF00FF000000FF; // [4]
-    AsmJit::XMMData Cx00FF00FF00FF000000FF00FF00FF0000; // [5]
+    AsmJit::XMMData Cx00FF00FF00FF000000FF00FF00FF0000; // [2]
+    AsmJit::XMMData Cx00FF00FF000000FF00FF00FF000000FF; // [3]
+    AsmJit::XMMData Cx00FF000000FF00FF00FF000000FF00FF; // [4]
+    AsmJit::XMMData Cx000000FF00FF00FF000000FF00FF00FF; // [5]
 
-    AsmJit::XMMData Cx00FF00000000000000FF000000000000; // [6]
-    AsmJit::XMMData Cx000000FF00000000000000FF00000000; // [7]
-    AsmJit::XMMData Cx0000000000FF00000000000000FF0000; // [8]
-    AsmJit::XMMData Cx00000000000000FF00000000000000FF; // [9]
+    AsmJit::XMMData Cx00000000000000FF00000000000000FF; // [6]
+    AsmJit::XMMData Cx0000000000FF00000000000000FF0000; // [7]
+    AsmJit::XMMData Cx000000FF00000000000000FF00000000; // [8]
+    AsmJit::XMMData Cx00FF00000000000000FF000000000000; // [9]
     
     AsmJit::XMMData CxDemultiply[256];
   };

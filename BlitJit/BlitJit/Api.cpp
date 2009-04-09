@@ -86,8 +86,7 @@ const Operator Api::operations[Operator::Count] =
   { "CompositeDifference" , Operator::CompositeDifference , true , true , true , true   },
   { "CompositeExclusion"  , Operator::CompositeExclusion  , true , true , true , true   },
   { "CompositeInvert"     , Operator::CompositeInvert     , true , true , true , true   },
-  { "CompositeInvertRgb"  , Operator::CompositeInvertRgb  , true , true , true , true   },
-  { "CompositeSaturate"   , Operator::CompositeSaturate   , true , true , true , true   }
+  { "CompositeInvertRgb"  , Operator::CompositeInvertRgb  , true , true , true , true   }
 };
 
 // ============================================================================
