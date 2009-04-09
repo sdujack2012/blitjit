@@ -131,6 +131,9 @@ struct BLITJIT_API Module
 
   //! @brief Bailout (used if module has more kinds).
   AsmJit::Label* _bail;
+
+  //! @brief Saved emittable position (used for kind no. 1, 2, ...)
+  AsmJit::Emittable* _oldKindPos;
 };
 
 // ============================================================================

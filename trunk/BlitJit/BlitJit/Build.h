@@ -62,6 +62,10 @@
 #endif
 
 // [BlitJit - API]
+#if !defined(BLITJIT_HIDDEN)
+# define BLITJIT_HIDDEN
+#endif
+
 #if !defined(BLITJIT_API)
 # define BLITJIT_API
 #endif

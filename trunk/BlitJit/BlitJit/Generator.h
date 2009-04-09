@@ -271,6 +271,9 @@ struct BLITJIT_API Generator : public GeneratorBase
     const XMMRegister& t1,
     bool moveToT0T1);
 
+  void _Premultiply_1(
+    const XMMRef& pix0);
+
   // --------------------------------------------------------------------------
   // [Constants Management]
   // --------------------------------------------------------------------------
@@ -307,6 +310,8 @@ struct BLITJIT_API Generator : public GeneratorBase
   bool _prefetch;
   //! @brief Tells generator to use non-thermal hint for store (movntq, movntdq, movntdqa, ...)
   bool _nonThermalHint;
+  //! @brief Alignment of main loops.
+  SysInt _mainLoopAlignment;
   //! @brief Function body flags.
   UInt32 _body;
 

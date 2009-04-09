@@ -77,6 +77,15 @@ private:
 };
 
 // ============================================================================
+// [BlitJit::PixelFormat helpers]
+// ============================================================================
+
+static UInt32 getARGB32AlphaPos(const PixelFormat* pf)
+{
+  return pf->aShift() / 8;
+}
+
+// ============================================================================
 // [BlitJit::MemSetModule_32]
 // ============================================================================
 
@@ -349,7 +358,39 @@ void MemCpyModule_32::processPixelsPtr(
       SysInt i = count;
 
       do {
-        if (i >= 8)
+        if (i >= 16 && c->numFreeMm() >= 8)
+        {
+          MMRef t0(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t1(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t2(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t3(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t4(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t5(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t6(c->newVariable(VARIABLE_TYPE_MM));
+          MMRef t7(c->newVariable(VARIABLE_TYPE_MM));
+
+          g->_LoadMovQ(t0.x(), qword_ptr(src.c(), displacement));
+          g->_LoadMovQ(t1.x(), qword_ptr(src.c(), displacement + 8));
+          g->_LoadMovQ(t2.x(), qword_ptr(src.c(), displacement + 16));
+          g->_LoadMovQ(t3.x(), qword_ptr(src.c(), displacement + 24));
+          g->_LoadMovQ(t4.x(), qword_ptr(src.c(), displacement + 32));
+          g->_LoadMovQ(t5.x(), qword_ptr(src.c(), displacement + 40));
+          g->_LoadMovQ(t6.x(), qword_ptr(src.c(), displacement + 48));
+          g->_LoadMovQ(t7.x(), qword_ptr(src.c(), displacement + 56));
+
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement), t0.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 8), t1.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 16), t2.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 24), t3.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 32), t4.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 40), t5.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 48), t6.c(), nt);
+          g->_StoreMovQ(qword_ptr(dst.c(), displacement + 56), t7.c(), nt);
+
+          displacement += 64;
+          i -= 16;
+        }
+        else if (i >= 8 && c->numFreeMm() >= 4)
         {
           MMRef t0(c->newVariable(VARIABLE_TYPE_MM));
           MMRef t1(c->newVariable(VARIABLE_TYPE_MM));
@@ -369,7 +410,7 @@ void MemCpyModule_32::processPixelsPtr(
           displacement += 32;
           i -= 8;
         }
-        else if (i >= 4)
+        else if (i >= 4 && c->numFreeMm() >= 2)
         {
           MMRef t0(c->newVariable(VARIABLE_TYPE_MM));
           MMRef t1(c->newVariable(VARIABLE_TYPE_MM));
@@ -412,7 +453,39 @@ void MemCpyModule_32::processPixelsPtr(
       SysInt i = count;
 
       do {
-        if (i >= 16)
+        if (i >= 32 && c->numFreeXmm() >= 8)
+        {
+          XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t4(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t5(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t6(c->newVariable(VARIABLE_TYPE_XMM));
+          XMMRef t7(c->newVariable(VARIABLE_TYPE_XMM));
+
+          g->_LoadMovDQ(t0.x(), dqword_ptr(src.c(), displacement +  0), srcAligned);
+          g->_LoadMovDQ(t1.x(), dqword_ptr(src.c(), displacement + 16), srcAligned);
+          g->_LoadMovDQ(t2.x(), dqword_ptr(src.c(), displacement + 32), srcAligned);
+          g->_LoadMovDQ(t3.x(), dqword_ptr(src.c(), displacement + 48), srcAligned);
+          g->_LoadMovDQ(t4.x(), dqword_ptr(src.c(), displacement + 64), srcAligned);
+          g->_LoadMovDQ(t5.x(), dqword_ptr(src.c(), displacement + 80), srcAligned);
+          g->_LoadMovDQ(t6.x(), dqword_ptr(src.c(), displacement + 96), srcAligned);
+          g->_LoadMovDQ(t7.x(), dqword_ptr(src.c(), displacement + 112), srcAligned);
+
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement +  0), t0.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 16), t1.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 32), t2.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 48), t3.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 64), t4.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 80), t5.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 96), t6.c(), nt, dstAligned);
+          g->_StoreMovDQ(dqword_ptr(dst.c(), displacement + 112), t7.c(), nt, dstAligned);
+
+          displacement += 128;
+          i -= 32;
+        }
+        else if (i >= 16 && c->numFreeXmm() >= 4)
         {
           XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
           XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
@@ -432,7 +505,7 @@ void MemCpyModule_32::processPixelsPtr(
           displacement += 64;
           i -= 16;
         }
-        else if (i >= 8)
+        else if (i >= 8 && c->numFreeXmm() >= 2)
         {
           XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
           XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
@@ -484,6 +557,8 @@ struct BLITJIT_HIDDEN FillModule_32_SSE2 : public FillModule
     const Operator* op);
   virtual ~FillModule_32_SSE2();
 
+  virtual void beginSwitch();
+
   virtual void init(PtrRef& _src, const PixelFormat* pfSrc);
   virtual void free();
 
@@ -493,6 +568,29 @@ struct BLITJIT_HIDDEN FillModule_32_SSE2 : public FillModule
     SysInt displacement,
     UInt32 kind,
     UInt32 flags);
+
+  void processPixelsRaw(
+    XMMRef& dst0,
+    bool two);
+
+  void processPixelsRaw_4(
+    XMMRef& dst0,
+    XMMRef& dst1,
+    UInt32 flags);
+
+  void processPixelsUnpacked(
+    XMMRef& dst0,
+    bool two);
+
+  void processPixelsUnpacked_4(
+    XMMRef& dst0,
+    XMMRef& dst1);
+
+  UInt32 dstAlphaPos;
+
+  SysIntRef src;
+  XMMRef srcxmm;
+  XMMRef alphaxmm;
 };
 
 FillModule_32_SSE2::FillModule_32_SSE2(
@@ -501,6 +599,9 @@ FillModule_32_SSE2::FillModule_32_SSE2(
   const Operator* op) :
     FillModule(g, pf, op)
 {
+  // Calculate correct pixel format positions
+  dstAlphaPos = getARGB32AlphaPos(pf);
+
   // First look at NOPs
   if (op->id() == Operator::CompositeDest)
   {
@@ -508,20 +609,51 @@ FillModule_32_SSE2::FillModule_32_SSE2(
     return;
   }
 
-  _maxPixelsPerLoop = 1;
+  _maxPixelsPerLoop = 4;
   _complexity = Complex;
+
+  setNumKinds(2);
 }
 
 FillModule_32_SSE2::~FillModule_32_SSE2()
 {
 }
 
+void FillModule_32_SSE2::beginSwitch()
+{
+  // Expand pixel
+  c->movd(srcxmm.x(), src.c32());
+  c->pshufd(srcxmm.r(), srcxmm.r(), mm_shuffle(0, 0, 0, 0));
+
+  // Check if alpha is 0xFF (255) 
+  c->cmp(src.r32(), imm(0xFF000000));
+  c->jae(getKindLabel(1));
+
+  // Alpha is not 0xFF, premultiply and prepare for compositing
+  c->punpcklbw(srcxmm.r(), g->xmmZero().r());
+  c->punpcklqdq(srcxmm.r(), srcxmm.r());
+  g->_Premultiply_1(srcxmm);
+  g->_ExtractAlpha(alphaxmm.r(), srcxmm.r(), dstAlphaPos, true, true);
+}
+
 void FillModule_32_SSE2::init(PtrRef& _src, const PixelFormat* pfSrc)
 {
+  g->usingConstants();
+  g->usingXMMZero();
+  g->usingXMM0080();
+
+  src.use(c->newVariable(VARIABLE_TYPE_SYSINT));
+  srcxmm.use(c->newVariable(VARIABLE_TYPE_XMM));
+  alphaxmm.use(c->newVariable(VARIABLE_TYPE_XMM));
+
+  c->mov(src.x32(), ptr(_src.c()));
 }
 
 void FillModule_32_SSE2::free()
 {
+  src.unuse();
+  srcxmm.unuse();
+  alphaxmm.unuse();
 }
 
 void FillModule_32_SSE2::processPixelsPtr(
@@ -531,6 +663,115 @@ void FillModule_32_SSE2::processPixelsPtr(
   UInt32 kind,
   UInt32 flags)
 {
+  SysInt i = count;
+
+  // Default
+  if (kind == 0)
+  {
+    XMMRef dst0(c->newVariable(VARIABLE_TYPE_XMM));
+
+    do {
+      if (i >= 4)
+      {
+        XMMRef dst1(c->newVariable(VARIABLE_TYPE_XMM));
+
+        //c->movdqa(dst0.x(), ptr(dst.c(), displacement));
+        //c->movq(dst1.x(), dst0.r());
+        c->movq(dst0.x(), ptr(dst.c(), displacement));
+        c->movq(dst1.x(), ptr(dst.c(), displacement + 8));
+        processPixelsRaw_4(dst0, dst1, 0);
+        c->movdqa(ptr(dst.c(), displacement), dst0.r());
+
+        displacement += 16;
+        i -= 4;
+      }
+      else if (i >= 2)
+      {
+        c->movq(dst0.x(), ptr(dst.c(), displacement));
+        processPixelsRaw(dst0, true);
+        c->movq(ptr(dst.c(), displacement), dst0.r());
+
+        displacement += 8;
+        i -= 2;
+      }
+      else if (i >= 1)
+      {
+        c->movd(dst0.x(), ptr(dst.c(), displacement));
+        processPixelsRaw(dst0, false);
+        c->movd(ptr(dst.c(), displacement), dst0.r());
+
+        displacement += 4;
+        i -= 1;
+      }
+    } while (i > 0);
+  }
+  // Optimized special case - Alpha == 0xFF
+  else
+  {
+    do {
+      if (i >= 4)
+      {
+        c->movdqa(ptr(dst.c(), displacement), srcxmm.r());
+
+        displacement += 16;
+        i -= 4;
+      }
+      else if (i >= 1)
+      {
+        c->mov(ptr(dst.c(), displacement), src.r());
+
+        displacement += 4;
+        i -= 1;
+      }
+    } while (i > 0);
+  }
+}
+
+void FillModule_32_SSE2::processPixelsRaw(
+  XMMRef& dst0,
+  bool two)
+{
+  c->punpcklbw(dst0.r(), g->xmmZero().r());
+  processPixelsUnpacked(dst0, two);
+  c->packuswb(dst0.r(), dst0.r());
+}
+
+void FillModule_32_SSE2::processPixelsRaw_4(
+  XMMRef& dst0,
+  XMMRef& dst1,
+  UInt32 flags)
+{
+  c->punpcklbw(dst0.r(), g->xmmZero().r());
+  c->punpcklbw(dst1.r(), g->xmmZero().r());
+  processPixelsUnpacked_4(dst0, dst1);
+  c->packuswb(dst0.r(), dst1.r());
+  //c->packuswb(dst0.r(), dst0.r());
+  //c->packuswb(dst1.r(), dst1.r());
+}
+
+void FillModule_32_SSE2::processPixelsUnpacked(
+  XMMRef& dst0,
+  bool two)
+{
+  XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
+
+  g->_PackedMultiply(dst0.r(), alphaxmm.c(), t0.r());
+  c->paddusb(dst0.r(), srcxmm.r());
+}
+
+void FillModule_32_SSE2::processPixelsUnpacked_4(
+  XMMRef& dst0,
+  XMMRef& dst1)
+{
+  XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
+  XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
+
+  g->_PackedMultiply_4(
+    dst0.r(), alphaxmm.c(), t0.r(),
+    dst1.r(), alphaxmm.c(), t1.r(),
+    0);
+  c->paddusb(dst0.r(), srcxmm.r());
+  c->paddusb(dst1.r(), srcxmm.r());
 }
 
 // ============================================================================
@@ -539,43 +780,23 @@ void FillModule_32_SSE2::processPixelsPtr(
 
 struct BLITJIT_HIDDEN CompositeModule_32_SSE2 : public CompositeModule
 {
-  // --------------------------------------------------------------------------
-  // [Construction / Destruction]
-  // --------------------------------------------------------------------------
-
   CompositeModule_32_SSE2(
     Generator* g,
     const PixelFormat* pfDst,
     const PixelFormat* pfSrc,
-    const Operator* op) :
-    CompositeModule(g, pfDst, pfSrc, op)
-  {
-    // First look at NOPs
-    if (op->id() == Operator::CompositeDest)
-    {
-      _isNop = true;
-      return;
-    }
+    const Operator* op);
+  virtual ~CompositeModule_32_SSE2();
 
-    _maxPixelsPerLoop = 4;
-    _complexity = Complex;
+  virtual void init();
+  virtual void free();
 
-    switch (op->id())
-    {
-      case Operator::CompositeSubtract  : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeMultiply  : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeScreen    : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeDarken    : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeLighten   : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeDifference: _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeExclusion : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeInvert    : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeInvertRgb : _maxPixelsPerLoop = 2; break;
-      case Operator::CompositeSaturate  : _maxPixelsPerLoop = 1; break;
-    }
-  }
-
-  virtual ~CompositeModule_32_SSE2() {}
+  virtual void processPixelsPtr(
+    const AsmJit::PtrRef& dst,
+    const AsmJit::PtrRef& src,
+    SysInt count,
+    SysInt displacement,
+    UInt32 kind,
+    UInt32 flags);
 
   enum RawFlags
   {
@@ -587,700 +808,719 @@ struct BLITJIT_HIDDEN CompositeModule_32_SSE2 : public CompositeModule
     Raw4PackToDst2 = (1 << 5) // X64
   };
 
-  // --------------------------------------------------------------------------
-  // [init / free]
-  // --------------------------------------------------------------------------
-
-  virtual void init()
-  {
-    g->usingConstants();
-    g->usingXMMZero();
-    g->usingXMM0080();
-  }
-
-  virtual void free()
-  {
-  }
-
-  virtual void processPixelsPtr(
-    const AsmJit::PtrRef& dst,
-    const AsmJit::PtrRef& src,
-    SysInt count,
-    SysInt displacement,
-    UInt32 kind,
-    UInt32 flags)
-  {
-    StateRef state(c->saveState());
-
-    // These are needed in all cases
-    XMMRef dstpix0(c->newVariable(VARIABLE_TYPE_XMM, 5));
-    XMMRef srcpix0(c->newVariable(VARIABLE_TYPE_XMM, 5));
-
-    bool srcAligned = (flags & SrcAligned) != 0;
-    bool dstAligned = (flags & DstAligned) != 0;
-
-    switch (count)
-    {
-      case 1: // Process 1 pixel
-      {
-        c->movd(srcpix0.x(), ptr(src.r(), displacement));
-        c->movd(dstpix0.x(), ptr(dst.r(), displacement));
-        processPixelsRaw(dstpix0.r(), srcpix0.r(), false);
-        c->movd(ptr(dst.r(), displacement), dstpix0.r());
-        break;
-      }
-      case 2: // Process 2 pixels
-      {
-        c->movq(srcpix0.x(), ptr(src.r(), displacement));
-        c->movq(dstpix0.x(), ptr(dst.r(), displacement));
-        processPixelsRaw(dstpix0.r(), srcpix0.r(), true);
-        c->movq(ptr(dst.r(), displacement), dstpix0.r());
-        break;
-      }
-      case 4: // Process 4 pixels
-      {
-        // Need more variables to successfully parallelize instructions
-        XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
-        XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
-
-        Label* L_LocalLoopExit = c->newLabel();
-
-        g->_LoadMovDQ(srcpix0.x(), ptr(src.r(), displacement), srcAligned);
-
-        // This can improve speed by skipping pixels of zero or full alpha
-        if (op->id() == Operator::CompositeOver)
-        {
-          Label* L_1 = c->newLabel();
-
-          c->pcmpeqb(dstpix0.r(), dstpix0.r());
-          c->pxor(dstpix1.r(), dstpix1.r());
-
-          c->pcmpeqb(dstpix0.r(), srcpix0.r());
-          c->pcmpeqb(dstpix1.r(), srcpix0.r());
-
-          {
-            SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
-            SysIntRef k(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
-
-            c->pmovmskb(k.r32(), dstpix0.r());
-            c->pmovmskb(t.r32(), dstpix1.r());
-
-            c->and_(k.r32(), 0x8888);
-            c->cmp(t.r32(), 0xFFFF);
-            c->jz(L_LocalLoopExit);
-
-            c->cmp(k.r32(), 0x8888);
-            c->jnz(L_1);
-          }
-
-          g->_StoreMovDQ(ptr(dst.r(), displacement), srcpix0.r(), false, dstAligned);
-          c->jmp(L_LocalLoopExit);
-
-          c->bind(L_1);
-        }
-
-        g->_LoadMovDQ(dstpix0.x(), ptr(dst.r(), displacement), dstAligned);
-
-        // Source and destination is in srcpix0 and dstpix0, also we want to
-        // pack destination to dstpix0.
-        processPixelsRaw_4(dstpix0.r(), srcpix0.r(), dstpix1.r(), srcpix1.r(),
-          CompositeModule_32_SSE2::Raw4UnpackFromSrc0 |
-          CompositeModule_32_SSE2::Raw4UnpackFromDst0 |
-          CompositeModule_32_SSE2::Raw4PackToDst0);
-
-        g->_StoreMovDQ(ptr(dst.r(), displacement), dstpix0.r(), false, dstAligned);
-
-        c->bind(L_LocalLoopExit);
-        break;
-      }
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // [processPixelsRaw]
-  // --------------------------------------------------------------------------
-
   void processPixelsRaw(
     const XMMRegister& dst0, const XMMRegister& src0,
-    bool two)
-  {
-    switch (op->id())
-    {
-      case Operator::CompositeSrc:
-        // copy operation (optimized in frontends and also by Generator itself)
-        c->movdqa(dst0, src0);
-        return;
-      case Operator::CompositeDest:
-        // no operation (optimized in frontends and also by Generator itself)
-        return;
-      case Operator::CompositeClear:
-        // clear operation (optimized in frontends and also by Generator itself)
-        c->pxor(dst0, dst0);
-        return;
-      case Operator::CompositeAdd:
-        // add operation (not needs to be unpacked and packed)
-        c->paddusb(dst0, src0);
-        return;
-      default:
-        // default operations - needs unpacking before and packing after
-        break;
-    }
-
-    c->punpcklbw(src0, g->xmmZero().r());
-    c->punpcklbw(dst0, g->xmmZero().r());
-
-    processPixelsUnpacked(dst0, src0, two);
-
-    c->packuswb(dst0, dst0);
-  }
+    bool two);
 
   void processPixelsRaw_4(
     const XMMRegister& dst0, const XMMRegister& src0,
     const XMMRegister& dst1, const XMMRegister& src1,
-    UInt32 flags)
-  {
-    if (flags & Raw4UnpackFromSrc0) c->movdqa(src1, src0);
-    if (flags & Raw4UnpackFromDst0) c->movdqa(dst1, dst0);
-
-    if (flags & Raw4UnpackFromSrc0)
-    {
-      c->punpcklbw(src0, g->xmmZero().r());
-      c->punpckhbw(src1, g->xmmZero().r());
-    }
-    else
-    {
-      c->punpcklbw(src0, g->xmmZero().r());
-      c->punpcklbw(src1, g->xmmZero().r());
-    }
-
-    if (flags & Raw4UnpackFromDst0)
-    {
-      c->punpcklbw(dst0, g->xmmZero().r());
-      c->punpckhbw(dst1, g->xmmZero().r());
-    }
-    else
-    {
-      c->punpcklbw(dst0, g->xmmZero().r());
-      c->punpcklbw(dst1, g->xmmZero().r());
-    }
-
-    processPixelsUnpacked_4(dst0, src0, dst1, src1);
-
-    if (flags & Raw4PackToDst0)
-    {
-      c->packuswb(dst0, dst1);
-    }
-    else
-    {
-      c->packuswb(dst0, dst0);
-      c->packuswb(dst1, dst1);
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // [processPixelsUnpacked]
-  // --------------------------------------------------------------------------
+    UInt32 flags);
 
   void processPixelsUnpacked(
-    const XMMRegister& dst0, const XMMRegister& src0, bool two)
-  {
-    XMMRef _t0(c->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _t1(c->newVariable(VARIABLE_TYPE_XMM, 0));
-
-    XMMRegister t0 = _t0.r();
-    XMMRegister t1 = _t1.r();
-
-    switch (op->id())
-    {
-      // Dca' = Sca
-      // Da'  = Sa
-      case Operator::CompositeSrc:
-      {
-        // copy operation (optimized in frontends and also by Generator itself)
-        c->movdqa(dst0, src0);
-        break;
-      }
-
-      // Dca' = Dca
-      // Da'  = Da
-      case Operator::CompositeDest:
-      {
-        // no operation (optimized in frontends and also by Generator itself)
-        break;
-      }
-
-      // Dca' = Sca + Dca.(1 - Sa)
-      // Da'  = Sa + Da.(1 - Sa)
-      //      = Sa + Da - Sa.Da
-      case Operator::CompositeOver:
-      {
-        g->_ExtractAlpha(t0, src0, 3, true, two);
-        g->_PackedMultiply(dst0, t0, t0);
-        c->paddusb(dst0, src0);
-        break;
-      }
-
-      // Dca' = Dca + Sca.(1 - Da)
-      // Da'  = Da + Sa.(1 - Da)
-      //      = Da + Sa - Da.Sa
-      case Operator::CompositeOverReverse:
-      {
-        g->_ExtractAlpha(t0, dst0, 3, true, two);
-        g->_PackedMultiply(src0, t0, t0);
-        c->paddusb(dst0, src0);
-        break;
-      }
-
-      // Dca' = Sca.Da
-      // Da'  = Sa.Da 
-      case Operator::CompositeIn:
-      {
-        g->_ExtractAlpha(t0, dst0, 3, false, two);
-        g->_PackedMultiply(src0, t0, dst0, true);
-        break;
-      }
-
-      // Dca' = Dca.Sa
-      // Da'  = Da.Sa
-      case Operator::CompositeInReverse:
-      {
-        g->_ExtractAlpha(t0, src0, 3, false, two);
-        g->_PackedMultiply(dst0, t0, t0);
-        break;
-      }
-
-      // Dca' = Sca.(1 - Da)
-      // Da'  = Sa.(1 - Da) 
-      case Operator::CompositeOut:
-      {
-        g->_ExtractAlpha(t0, dst0, 3, true, two);
-        g->_PackedMultiply(src0, t0, dst0, true);
-        break;
-      }
-
-      // Dca' = Dca.(1 - Sa) 
-      // Da'  = Da.(1 - Sa) 
-      case Operator::CompositeOutReverse:
-      {
-        g->_ExtractAlpha(t0, src0, 3, true, two);
-        g->_PackedMultiply(dst0, t0, t0);
-        break;
-      }
-
-      // Dca' = Sca.Da + Dca.(1 - Sa)
-      // Da'  = Sa.Da + Da.(1 - Sa)
-      //      = Da.(Sa + 1 - Sa)
-      //      = Da
-      case Operator::CompositeAtop:
-      {
-        g->_ExtractAlpha(t0, src0, 3, true, two);
-        g->_ExtractAlpha(t1, dst0, 3, false, two);
-        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
-        break;
-      }
-
-      // Dca' = Dca.Sa + Sca.(1 - Da)
-      // Da'  = Da.Sa + Sa.(1 - Da)
-      //      = Sa.(Da + 1 - Da)
-      //      = Sa 
-      case Operator::CompositeAtopReverse:
-      {
-        g->_ExtractAlpha(t0, src0, 3, false, two);
-        g->_ExtractAlpha(t1, dst0, 3, true, two);
-        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
-        break;
-      }
-
-      // Dca' = Sca.(1 - Da) + Dca.(1 - Sa)
-      // Da'  = Sa.(1 - Da) + Da.(1 - Sa)
-      //      = Sa + Da - 2.Sa.Da 
-      case Operator::CompositeXor:
-      {
-        g->_ExtractAlpha(t0, src0, 3, true, two);
-        g->_ExtractAlpha(t1, dst0, 3, true, two);
-        g->_PackedMultiplyAdd(
-          src0, t1, 
-          dst0, t0, 
-          dst0, true);
-        break;
-      }
-
-      // Dca' = 0
-      // Da'  = 0
-      case Operator::CompositeClear:
-      {
-        // clear operation (optimized in frontends and also by Generator itself)
-        c->pxor(dst0, dst0);
-        break;
-      }
-
-      // Dca' = Sca + Dca
-      // Da'  = Sa + Da 
-      case Operator::CompositeAdd:
-      {
-        c->paddusb(dst0, src0);
-        break;
-      }
-
-      // Dca' = Dca - Sca
-      // Da'  = 1 - (1 - Sa).(1 - Da)
-      case Operator::CompositeSubtract:
-      {
-        g->_ExtractAlpha(t0, src0, 3, true, two);
-        g->_ExtractAlpha(t1, dst0, 3, true, two);
-        g->_PackedMultiply(t0, t1, t1);
-        c->psubusb(dst0, src0);
-        c->por(dst0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
-        c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
-        c->psubusb(dst0, t0);
-        break;
-      }
-
-      // Dca' = Sca.Dca + Sca.(1 - Da) + Dca.(1 - Sa)
-      // Da'  = Sa.Da + Sa.(1 - Da) + Da.(1 - Sa)
-      //      = Sa + Da - Sa.Da 
-      case Operator::CompositeMultiply:
-      {
-        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRegister t2 = _t2.r();
-
-        c->movdqa(t2, dst0);
-        g->_PackedMultiply(t2, dst0, t0);
-
-        g->_ExtractAlpha(t0, src0, 3, true, two); // t0 == 1-alpha from src0
-        g->_ExtractAlpha(t1, dst0, 3, true, two); // t1 == 1-alpha from dst0
-
-        g->_PackedMultiplyAdd(dst0, t0, src0, t1, t0);
-        c->paddusw(dst0, t2);
-        break;
-      }
-
-      // Dca' = (Sca.Da + Dca.Sa - Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
-      //      = Sca + Dca - Sca.Dca
-      // Da'  = Sa + Da - Sa.Da 
-      case Operator::CompositeScreen:
-      {
-        c->movdqa(t0, dst0);
-        c->paddusw(dst0, src0);
-        g->_PackedMultiply(t0, src0, t1);
-        c->psubusw(dst0, t0);
-        break;
-      }
-
-      // Dca' = min(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
-      // Da'  = min(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
-      //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
-      //      = Sa + Da - Sa.Da 
-      case Operator::CompositeDarken:
-      // ... go through ...
-
-      // Dca' = max(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
-      // Da'  = max(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
-      //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
-      //      = Sa + Da - Sa.Da 
-      case Operator::CompositeLighten:
-      {
-        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
-
-        XMMRegister t2 = _t2.r();
-        XMMRegister t3 = _t3.r();
-
-        g->_ExtractAlpha_4(
-          t0, src0, 3, false,
-          t1, dst0, 3, false);
-        g->_PackedMultiply_4(
-          t0, dst0, t2,
-          t1, src0, t3, true);
-
-        if (op->id() == Operator::CompositeDarken)
-          c->pminsw(t3, t2);
-        else
-          c->pmaxsw(t3, t2);
-
-        g->_ExtractAlpha_4(
-          t0, src0, 3, true,
-          t1, dst0, 3, true);
-        g->_PackedMultiplyAdd(
-          dst0, t0,
-          src0, t1, t2);
-        c->paddusw(dst0, t3);
-        break;
-      }
-
-      // Dca' = Sca + Dca - 2.min(Sca.Da, Dca.Sa)
-      // Da'  = Sa + Da - min(Sa.Da, Da.Sa)
-      //      = Sa + Da - Sa.Da
-      case Operator::CompositeDifference:
-      {
-        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
-
-        XMMRegister t2 = _t2.r();
-        XMMRegister t3 = _t3.r();
-
-        g->_ExtractAlpha_4(
-          t0, src0, 3, false,
-          t1, dst0, 3, false);
-        g->_PackedMultiply_4(
-          t0, dst0, t2,
-          t1, src0, t3);
-        c->pminsw(t0, t1);
-        c->paddusw(dst0, src0);
-        c->psubusw(dst0, t0);
-        c->pand(t0, BLITJIT_GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
-        c->psubusw(dst0, t0);
-        break;
-      }
-
-      // Dca' = (Sca.Da + Dca.Sa - 2.Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
-      // Dca' = Sca + Dca - 2.Sca.Dca
-      //      
-      // Da'  = (Sa.Da + Da.Sa - 2.Sa.Da) + Sa.(1 - Da) + Da.(1 - Sa)
-      //      = Sa - Sa.Da + Da - Da.Sa = Sa + Da - 2.Sa.Da
-      // Substitute 2.Sa.Da with Sa.Da
-      //
-      // Da'  = Sa + Da - Sa.Da 
-      case Operator::CompositeExclusion:
-      {
-        c->movdqa(t0, src0);
-        g->_PackedMultiply(t0, dst0, t1);
-        c->paddusw(dst0, src0);
-        c->psubusw(dst0, t0);
-        c->pand(t0, BLITJIT_GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
-        c->psubusw(dst0, t0);
-        break;
-      }
-
-      // Dca' = (Da - Dca) * Sa + Dca.(1 - Sa)
-      // Da'  = Sa + (Da - Da) * Sa + Da - Sa.Da
-      //      = Sa + Da - Sa.Da
-      case Operator::CompositeInvert:
-      {
-        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
-
-        XMMRegister t2 = _t2.r();
-        XMMRegister t3 = _t3.r();
-
-        g->_ExtractAlpha_4(
-          t0, src0, 3, false,  // Sa
-          t2, dst0, 3, false); // Da
-
-        c->movdqa(t1, t0);
-        c->psubusb(t2, dst0);
-        c->pxor(t1, BLITJIT_GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
-
-        // t1 = 1 - Sa
-        // t2 = Da - Dca
-
-        g->_PackedMultiply_4(
-          t2, t0, t3,     // t2   = Sa.(Da - Dca)
-          dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
-
-        c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
-        c->paddusb(dst0, t2);
-        c->paddusb(dst0, t0);
-        break;
-      }
-
-      // Dca' = (Da - Dca) * Sca + Dca.(1 - Sa)
-      // Da'  = Sa + (Da - Da) * Sa + Da - Da.Sa
-      //      = Sa + Da - Da.Sa
-      case Operator::CompositeInvertRgb:
-      {
-        XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
-        XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
-
-        XMMRegister t2 = _t2.r();
-        XMMRegister t3 = _t3.r();
-
-        g->_ExtractAlpha_4(
-          t0, src0, 3, false,  // Sa
-          t2, dst0, 3, false); // Da
-
-        c->movdqa(t1, t0);
-        c->psubw(t2, dst0);
-        c->pxor(t1, BLITJIT_GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
-
-        // t1 = 1 - Sa
-        // t2 = Da - Dca
-
-        g->_PackedMultiply_4(
-          t2, src0, t3,   // t2   = Sca.(Da - Dca)
-          dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
-
-        c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
-        c->paddusb(dst0, t2);
-        c->paddusb(dst0, t0);
-        break;
-      }
-
-      case Operator::CompositeSaturate:
-      {
-        Label* L_Skip = c->newLabel();
-        Int32Ref td(c->newVariable(VARIABLE_TYPE_INT32, 0));
-        Int32Ref ts(c->newVariable(VARIABLE_TYPE_INT32, 0));
-
-        c->movdqa(t1, dst0);
-        c->movdqa(t0, src0);
-        c->psrlq(t1, 48);
-        c->psrlq(t0, 48);
-        c->movd(td.r(), t1);
-        c->movd(ts.r(), t0);
-        c->xor_(td.r(), 0xFF);
-        c->cmp(ts.r16(), td.r16());
-        c->jle(L_Skip);
-
-        c->and_(ts.r(), 0xFF);
-        c->shl(ts.r(), 4);
-        c->movd(t0, td.r());
-        g->_ExtractAlpha(t0, t0, 0, 0, false);
-        // TODO: Broken
-        // c->movdqa(t1, ptr(g->rconst.r(), ts.r(), 0, DISPCONST(CxDemultiply)));
-        g->_PackedMultiply(t0, t1, t1);
-        g->_PackedMultiply(src0, t0, t0);
-
-        c->bind(L_Skip);
-        c->paddusb(dst0, src0);
-        break;
-      }
-    }
-  }
+    const XMMRegister& dst0, const XMMRegister& src0, bool two);
 
   void processPixelsUnpacked_4(
     const XMMRegister& dst0, const XMMRegister& src0,
-    const XMMRegister& dst1, const XMMRegister& src1)
+    const XMMRegister& dst1, const XMMRegister& src1);
+
+  UInt32 dstAlphaPos;
+  UInt32 srcAlphaPos;
+};
+
+CompositeModule_32_SSE2::CompositeModule_32_SSE2(
+  Generator* g,
+  const PixelFormat* pfDst,
+  const PixelFormat* pfSrc,
+  const Operator* op) :
+    CompositeModule(g, pfDst, pfSrc, op)
+{
+  // Calculate correct pixel format positions
+  dstAlphaPos = getARGB32AlphaPos(pfDst);
+  srcAlphaPos = getARGB32AlphaPos(pfSrc);
+
+  // First look at NOPs
+  if (op->id() == Operator::CompositeDest)
   {
-    XMMRef _t0(c->newVariable(VARIABLE_TYPE_XMM, 0));
-    XMMRef _t1(c->newVariable(VARIABLE_TYPE_XMM, 0));
+    _isNop = true;
+    return;
+  }
 
-    XMMRegister t0 = _t0.r();
-    XMMRegister t1 = _t1.r();
+  _maxPixelsPerLoop = 4;
+  _complexity = Complex;
 
-    switch (op->id())
+  switch (op->id())
+  {
+    case Operator::CompositeSubtract  : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeMultiply  : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeScreen    : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeDarken    : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeLighten   : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeDifference: _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeExclusion : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeInvert    : _maxPixelsPerLoop = 2; break;
+    case Operator::CompositeInvertRgb : _maxPixelsPerLoop = 2; break;
+  }
+}
+
+CompositeModule_32_SSE2::~CompositeModule_32_SSE2()
+{
+}
+
+void CompositeModule_32_SSE2::init()
+{
+  g->usingConstants();
+  g->usingXMMZero();
+  g->usingXMM0080();
+}
+
+void CompositeModule_32_SSE2::free()
+{
+}
+
+void CompositeModule_32_SSE2::processPixelsPtr(
+  const AsmJit::PtrRef& dst,
+  const AsmJit::PtrRef& src,
+  SysInt count,
+  SysInt displacement,
+  UInt32 kind,
+  UInt32 flags)
+{
+  StateRef state(c->saveState());
+
+  // These are needed in all cases
+  XMMRef dstpix0(c->newVariable(VARIABLE_TYPE_XMM, 5));
+  XMMRef srcpix0(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+  bool srcAligned = (flags & SrcAligned) != 0;
+  bool dstAligned = (flags & DstAligned) != 0;
+
+  switch (count)
+  {
+    case 1: // Process 1 pixel
     {
-      case Operator::CompositeSrc:
-        // copy operation (optimized in frontends and also by Generator itself)
-        c->movdqa(dst0, src0);
-        c->movdqa(dst1, src1);
-        break;
-      case Operator::CompositeDest:
-        // no operation (optimized in frontends and also by Generator itself)
-        break;
-      case Operator::CompositeOver:
-        g->_ExtractAlpha_4(
-          t0, src0, 3, true,
-          t1, src1, 3, true);
-        g->_PackedMultiply_4(
-          dst0, t0, t0,
-          dst1, t1, t1);
-        c->paddusb(dst0, src0);
-        c->paddusb(dst1, src1);
-        break;
-      case Operator::CompositeOverReverse:
-        g->_ExtractAlpha_4(
-          t0, dst0, 3, true,
-          t1, dst1, 3, true);
-        g->_PackedMultiply_4(
-          src0, t0, t0,
-          src1, t1, t1);
-        c->paddusb(dst0, src0);
-        c->paddusb(dst1, src1);
-        break;
-      case Operator::CompositeIn:
-        g->_ExtractAlpha_4(
-          t0, dst0, 3, false,
-          t1, dst1, 3, false);
-        g->_PackedMultiply_4(
-          src0, t0, dst0,
-          src1, t1, dst1,
-          true);
-        break;
-      case Operator::CompositeInReverse:
-        g->_ExtractAlpha_4(
-          t0, src0, 3, false,
-          t1, src1, 3, false);
-        g->_PackedMultiply_4(
-          dst0, t0, t0,
-          dst1, t1, t1);
-        break;
-      case Operator::CompositeOut:
-        g->_ExtractAlpha_4(
-          t0, dst0, 3, true,
-          t1, dst1, 3, true);
-        g->_PackedMultiply_4(
-          src0, t0, dst0,
-          src1, t1, dst1,
-          true);
-        break;
-      case Operator::CompositeOutReverse:
-        g->_ExtractAlpha_4(
-          t0, src0, 3, true,
-          t1, src1, 3, true);
-        g->_PackedMultiply_4(
-          dst0, t0, t0,
-          dst1, t1, t1);
-        break;
-      case Operator::CompositeAtop:
-        g->_ExtractAlpha_4(
-          t0, src0, 3, true,
-          t1, dst0, 3, false);
-        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+      c->movd(srcpix0.x(), ptr(src.r(), displacement));
+      c->movd(dstpix0.x(), ptr(dst.r(), displacement));
+      processPixelsRaw(dstpix0.r(), srcpix0.r(), false);
+      c->movd(ptr(dst.r(), displacement), dstpix0.r());
+      break;
+    }
+    case 2: // Process 2 pixels
+    {
+      c->movq(srcpix0.x(), ptr(src.r(), displacement));
+      c->movq(dstpix0.x(), ptr(dst.r(), displacement));
+      processPixelsRaw(dstpix0.r(), srcpix0.r(), true);
+      c->movq(ptr(dst.r(), displacement), dstpix0.r());
+      break;
+    }
+    case 4: // Process 4 pixels
+    {
+      // Need more variables to successfully parallelize instructions
+      XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+      XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
 
-        g->_ExtractAlpha_4(
-          t0, src1, 3, true,
-          t1, dst1, 3, false);
-        g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
-        break;
-      case Operator::CompositeAtopReverse:
-        g->_ExtractAlpha_4(
-          t0, src0, 3, false,
-          t1, dst0, 3, true);
-        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+      Label* L_LocalLoopExit = c->newLabel();
 
-        g->_ExtractAlpha_4(
-          t0, src1, 3, false,
-          t1, dst1, 3, true);
-        g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
-        break;
-      case Operator::CompositeXor:
-        g->_ExtractAlpha_4(
-          t0, src0, 3, true,
-          t1, dst0, 3, true);
-        g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+      g->_LoadMovDQ(srcpix0.x(), ptr(src.r(), displacement), srcAligned);
 
-        g->_ExtractAlpha_4(
-          t0, src1, 3, true,
-          t1, dst1, 3, true);
-        g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
-        break;
-      case Operator::CompositeClear:
-        // clear operation (optimized in frontends and also by Generator itself)
-        c->pxor(dst0, dst0);
-        c->pxor(dst1, dst1);
-        break;
-      case Operator::CompositeAdd:
-        c->paddusb(dst0, src0);
-        c->paddusb(dst1, src1);
-        break;
-      case Operator::CompositeSubtract:
-      case Operator::CompositeMultiply:
-      case Operator::CompositeScreen:
-      case Operator::CompositeDarken:
-      case Operator::CompositeLighten:
-      case Operator::CompositeDifference:
-      case Operator::CompositeExclusion:
-      case Operator::CompositeInvert:
-      case Operator::CompositeInvertRgb:
-      case Operator::CompositeSaturate:
+      // This can improve speed by skipping pixels of zero or full alpha
+      if (op->id() == Operator::CompositeOver)
       {
-        BLITJIT_ASSERT(0);
-        break;
+        Label* L_1 = c->newLabel();
+
+        c->pcmpeqb(dstpix0.r(), dstpix0.r());
+        c->pxor(dstpix1.r(), dstpix1.r());
+
+        c->pcmpeqb(dstpix0.r(), srcpix0.r());
+        c->pcmpeqb(dstpix1.r(), srcpix0.r());
+
+        {
+          SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
+          SysIntRef k(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
+
+          c->pmovmskb(k.r32(), dstpix0.r());
+          c->pmovmskb(t.r32(), dstpix1.r());
+
+          c->and_(k.r32(), 0x8888);
+          c->cmp(t.r32(), 0xFFFF);
+          c->jz(L_LocalLoopExit);
+
+          c->cmp(k.r32(), 0x8888);
+          c->jnz(L_1);
+        }
+
+        g->_StoreMovDQ(ptr(dst.r(), displacement), srcpix0.r(), false, dstAligned);
+        c->jmp(L_LocalLoopExit);
+
+        c->bind(L_1);
       }
+
+      g->_LoadMovDQ(dstpix0.x(), ptr(dst.r(), displacement), dstAligned);
+
+      // Source and destination is in srcpix0 and dstpix0, also we want to
+      // pack destination to dstpix0.
+      processPixelsRaw_4(dstpix0.r(), srcpix0.r(), dstpix1.r(), srcpix1.r(),
+        CompositeModule_32_SSE2::Raw4UnpackFromSrc0 |
+        CompositeModule_32_SSE2::Raw4UnpackFromDst0 |
+        CompositeModule_32_SSE2::Raw4PackToDst0);
+
+      g->_StoreMovDQ(ptr(dst.r(), displacement), dstpix0.r(), false, dstAligned);
+
+      c->bind(L_LocalLoopExit);
+      break;
     }
   }
-};
+}
+
+void CompositeModule_32_SSE2::processPixelsRaw(
+  const XMMRegister& dst0, const XMMRegister& src0,
+  bool two)
+{
+  switch (op->id())
+  {
+    case Operator::CompositeSrc:
+      // copy operation (optimized in frontends and also by Generator itself)
+      c->movdqa(dst0, src0);
+      return;
+    case Operator::CompositeDest:
+      // no operation (optimized in frontends and also by Generator itself)
+      return;
+    case Operator::CompositeClear:
+      // clear operation (optimized in frontends and also by Generator itself)
+      c->pxor(dst0, dst0);
+      return;
+    case Operator::CompositeAdd:
+      // add operation (not needs to be unpacked and packed)
+      c->paddusb(dst0, src0);
+      return;
+    default:
+      // default operations - needs unpacking before and packing after
+      break;
+  }
+
+  c->punpcklbw(src0, g->xmmZero().r());
+  c->punpcklbw(dst0, g->xmmZero().r());
+
+  processPixelsUnpacked(dst0, src0, two);
+
+  c->packuswb(dst0, dst0);
+}
+
+void CompositeModule_32_SSE2::processPixelsRaw_4(
+  const XMMRegister& dst0, const XMMRegister& src0,
+  const XMMRegister& dst1, const XMMRegister& src1,
+  UInt32 flags)
+{
+  if (flags & Raw4UnpackFromSrc0) c->movdqa(src1, src0);
+  if (flags & Raw4UnpackFromDst0) c->movdqa(dst1, dst0);
+
+  if (flags & Raw4UnpackFromSrc0)
+  {
+    c->punpcklbw(src0, g->xmmZero().r());
+    c->punpckhbw(src1, g->xmmZero().r());
+  }
+  else
+  {
+    c->punpcklbw(src0, g->xmmZero().r());
+    c->punpcklbw(src1, g->xmmZero().r());
+  }
+
+  if (flags & Raw4UnpackFromDst0)
+  {
+    c->punpcklbw(dst0, g->xmmZero().r());
+    c->punpckhbw(dst1, g->xmmZero().r());
+  }
+  else
+  {
+    c->punpcklbw(dst0, g->xmmZero().r());
+    c->punpcklbw(dst1, g->xmmZero().r());
+  }
+
+  processPixelsUnpacked_4(dst0, src0, dst1, src1);
+
+  if (flags & Raw4PackToDst0)
+  {
+    c->packuswb(dst0, dst1);
+  }
+  else
+  {
+    c->packuswb(dst0, dst0);
+    c->packuswb(dst1, dst1);
+  }
+}
+
+void CompositeModule_32_SSE2::processPixelsUnpacked(
+  const XMMRegister& dst0, const XMMRegister& src0, bool two)
+{
+  XMMRef _t0(c->newVariable(VARIABLE_TYPE_XMM, 0));
+  XMMRef _t1(c->newVariable(VARIABLE_TYPE_XMM, 0));
+
+  XMMRegister t0 = _t0.r();
+  XMMRegister t1 = _t1.r();
+
+  switch (op->id())
+  {
+    // Dca' = Sca
+    // Da'  = Sa
+    case Operator::CompositeSrc:
+    {
+      // copy operation (optimized in frontends and also by Generator itself)
+      c->movdqa(dst0, src0);
+      break;
+    }
+
+    // Dca' = Dca
+    // Da'  = Da
+    case Operator::CompositeDest:
+    {
+      // no operation (optimized in frontends and also by Generator itself)
+      break;
+    }
+
+    // Dca' = Sca + Dca.(1 - Sa)
+    // Da'  = Sa + Da.(1 - Sa)
+    //      = Sa + Da - Sa.Da
+    case Operator::CompositeOver:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, true, two);
+      g->_PackedMultiply(dst0, t0, t0);
+      c->paddusb(dst0, src0);
+      break;
+    }
+
+    // Dca' = Dca + Sca.(1 - Da)
+    // Da'  = Da + Sa.(1 - Da)
+    //      = Da + Sa - Da.Sa
+    case Operator::CompositeOverReverse:
+    {
+      g->_ExtractAlpha(t0, dst0, dstAlphaPos, true, two);
+      g->_PackedMultiply(src0, t0, t0);
+      c->paddusb(dst0, src0);
+      break;
+    }
+
+    // Dca' = Sca.Da
+    // Da'  = Sa.Da 
+    case Operator::CompositeIn:
+    {
+      g->_ExtractAlpha(t0, dst0, dstAlphaPos, false, two);
+      g->_PackedMultiply(src0, t0, dst0, true);
+      break;
+    }
+
+    // Dca' = Dca.Sa
+    // Da'  = Da.Sa
+    case Operator::CompositeInReverse:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, false, two);
+      g->_PackedMultiply(dst0, t0, t0);
+      break;
+    }
+
+    // Dca' = Sca.(1 - Da)
+    // Da'  = Sa.(1 - Da) 
+    case Operator::CompositeOut:
+    {
+      g->_ExtractAlpha(t0, dst0, dstAlphaPos, true, two);
+      g->_PackedMultiply(src0, t0, dst0, true);
+      break;
+    }
+
+    // Dca' = Dca.(1 - Sa) 
+    // Da'  = Da.(1 - Sa) 
+    case Operator::CompositeOutReverse:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, true, two);
+      g->_PackedMultiply(dst0, t0, t0);
+      break;
+    }
+
+    // Dca' = Sca.Da + Dca.(1 - Sa)
+    // Da'  = Sa.Da + Da.(1 - Sa)
+    //      = Da.(Sa + 1 - Sa)
+    //      = Da
+    case Operator::CompositeAtop:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, true, two);
+      g->_ExtractAlpha(t1, dst0, dstAlphaPos, false, two);
+      g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+      break;
+    }
+
+    // Dca' = Dca.Sa + Sca.(1 - Da)
+    // Da'  = Da.Sa + Sa.(1 - Da)
+    //      = Sa.(Da + 1 - Da)
+    //      = Sa 
+    case Operator::CompositeAtopReverse:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, false, two);
+      g->_ExtractAlpha(t1, dst0, dstAlphaPos, true, two);
+      g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+      break;
+    }
+
+    // Dca' = Sca.(1 - Da) + Dca.(1 - Sa)
+    // Da'  = Sa.(1 - Da) + Da.(1 - Sa)
+    //      = Sa + Da - 2.Sa.Da 
+    case Operator::CompositeXor:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, true, two);
+      g->_ExtractAlpha(t1, dst0, dstAlphaPos, true, two);
+      g->_PackedMultiplyAdd(
+        src0, t1, 
+        dst0, t0, 
+        dst0, true);
+      break;
+    }
+
+    // Dca' = 0
+    // Da'  = 0
+    case Operator::CompositeClear:
+    {
+      // clear operation (optimized in frontends and also by Generator itself)
+      c->pxor(dst0, dst0);
+      break;
+    }
+
+    // Dca' = Sca + Dca
+    // Da'  = Sa + Da 
+    case Operator::CompositeAdd:
+    {
+      c->paddusb(dst0, src0);
+      break;
+    }
+
+    // Dca' = Dca - Sca
+    // Da'  = 1 - (1 - Sa).(1 - Da)
+    case Operator::CompositeSubtract:
+    {
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, true, two);
+      g->_ExtractAlpha(t1, dst0, dstAlphaPos, true, two);
+      g->_PackedMultiply(t0, t1, t1);
+      c->psubusb(dst0, src0);
+      c->por(dst0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
+      c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
+      c->psubusb(dst0, t0);
+      break;
+    }
+
+    // Dca' = Sca.Dca + Sca.(1 - Da) + Dca.(1 - Sa)
+    // Da'  = Sa.Da + Sa.(1 - Da) + Da.(1 - Sa)
+    //      = Sa + Da - Sa.Da 
+    case Operator::CompositeMultiply:
+    {
+      XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+      XMMRegister t2 = _t2.r();
+
+      c->movdqa(t2, dst0);
+      g->_PackedMultiply(t2, dst0, t0);
+
+      g->_ExtractAlpha(t0, src0, dstAlphaPos, true, two); // t0 == 1-alpha from src0
+      g->_ExtractAlpha(t1, dst0, dstAlphaPos, true, two); // t1 == 1-alpha from dst0
+
+      g->_PackedMultiplyAdd(dst0, t0, src0, t1, t0);
+      c->paddusw(dst0, t2);
+      break;
+    }
+
+    // Dca' = (Sca.Da + Dca.Sa - Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
+    //      = Sca + Dca - Sca.Dca
+    // Da'  = Sa + Da - Sa.Da 
+    case Operator::CompositeScreen:
+    {
+      c->movdqa(t0, dst0);
+      c->paddusw(dst0, src0);
+      g->_PackedMultiply(t0, src0, t1);
+      c->psubusw(dst0, t0);
+      break;
+    }
+
+    // Dca' = min(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
+    // Da'  = min(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
+    //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
+    //      = Sa + Da - Sa.Da 
+    case Operator::CompositeDarken:
+    // ... go through ...
+
+    // Dca' = max(Sca.Da, Dca.Sa) + Sca.(1 - Da) + Dca.(1 - Sa)
+    // Da'  = max(Sa.Da, Da.Sa) + Sa.(1 - Da) + Da.(1 - Sa)
+    //      = Sa.Da + Sa - Sa.Da + Da - Sa.Da
+    //      = Sa + Da - Sa.Da 
+    case Operator::CompositeLighten:
+    {
+      XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+      XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
+
+      XMMRegister t2 = _t2.r();
+      XMMRegister t3 = _t3.r();
+
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, false,
+        t1, dst0, dstAlphaPos, false);
+      g->_PackedMultiply_4(
+        t0, dst0, t2,
+        t1, src0, t3, true);
+
+      if (op->id() == Operator::CompositeDarken)
+        c->pminsw(t3, t2);
+      else
+        c->pmaxsw(t3, t2);
+
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, true,
+        t1, dst0, dstAlphaPos, true);
+      g->_PackedMultiplyAdd(
+        dst0, t0,
+        src0, t1, t2);
+      c->paddusw(dst0, t3);
+      break;
+    }
+
+    // Dca' = Sca + Dca - 2.min(Sca.Da, Dca.Sa)
+    // Da'  = Sa + Da - min(Sa.Da, Da.Sa)
+    //      = Sa + Da - Sa.Da
+    case Operator::CompositeDifference:
+    {
+      XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+      XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
+
+      XMMRegister t2 = _t2.r();
+      XMMRegister t3 = _t3.r();
+
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, false,
+        t1, dst0, dstAlphaPos, false);
+      g->_PackedMultiply_4(
+        t0, dst0, t2,
+        t1, src0, t3);
+      c->pminsw(t0, t1);
+      c->paddusw(dst0, src0);
+      c->psubusw(dst0, t0);
+      c->pand(t0, BLITJIT_GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
+      c->psubusw(dst0, t0);
+      break;
+    }
+
+    // Dca' = (Sca.Da + Dca.Sa - 2.Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
+    // Dca' = Sca + Dca - 2.Sca.Dca
+    //      
+    // Da'  = (Sa.Da + Da.Sa - 2.Sa.Da) + Sa.(1 - Da) + Da.(1 - Sa)
+    //      = Sa - Sa.Da + Da - Da.Sa = Sa + Da - 2.Sa.Da
+    // Substitute 2.Sa.Da with Sa.Da
+    //
+    // Da'  = Sa + Da - Sa.Da 
+    case Operator::CompositeExclusion:
+    {
+      c->movdqa(t0, src0);
+      g->_PackedMultiply(t0, dst0, t1);
+      c->paddusw(dst0, src0);
+      c->psubusw(dst0, t0);
+      c->pand(t0, BLITJIT_GETCONST(g, Cx000000FF00FF00FF000000FF00FF00FF));
+      c->psubusw(dst0, t0);
+      break;
+    }
+
+    // Dca' = (Da - Dca) * Sa + Dca.(1 - Sa)
+    // Da'  = Sa + (Da - Da) * Sa + Da - Sa.Da
+    //      = Sa + Da - Sa.Da
+    case Operator::CompositeInvert:
+    {
+      XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+      XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
+
+      XMMRegister t2 = _t2.r();
+      XMMRegister t3 = _t3.r();
+
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, false,  // Sa
+        t2, dst0, dstAlphaPos, false); // Da
+
+      c->movdqa(t1, t0);
+      c->psubusb(t2, dst0);
+      c->pxor(t1, BLITJIT_GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+
+      // t1 = 1 - Sa
+      // t2 = Da - Dca
+
+      g->_PackedMultiply_4(
+        t2, t0, t3,     // t2   = Sa.(Da - Dca)
+        dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
+
+      c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
+      c->paddusb(dst0, t2);
+      c->paddusb(dst0, t0);
+      break;
+    }
+
+    // Dca' = (Da - Dca) * Sca + Dca.(1 - Sa)
+    // Da'  = Sa + (Da - Da) * Sa + Da - Da.Sa
+    //      = Sa + Da - Da.Sa
+    case Operator::CompositeInvertRgb:
+    {
+      XMMRef _t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
+      XMMRef _t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
+
+      XMMRegister t2 = _t2.r();
+      XMMRegister t3 = _t3.r();
+
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, false,  // Sa
+        t2, dst0, dstAlphaPos, false); // Da
+
+      c->movdqa(t1, t0);
+      c->psubw(t2, dst0);
+      c->pxor(t1, BLITJIT_GETCONST(g, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+
+      // t1 = 1 - Sa
+      // t2 = Da - Dca
+
+      g->_PackedMultiply_4(
+        t2, src0, t3,   // t2   = Sca.(Da - Dca)
+        dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
+
+      c->pand(t0, BLITJIT_GETCONST(g, Cx00FF00000000000000FF000000000000));
+      c->paddusb(dst0, t2);
+      c->paddusb(dst0, t0);
+      break;
+    }
+  }
+}
+
+void CompositeModule_32_SSE2::processPixelsUnpacked_4(
+  const XMMRegister& dst0, const XMMRegister& src0,
+  const XMMRegister& dst1, const XMMRegister& src1)
+{
+  XMMRef _t0(c->newVariable(VARIABLE_TYPE_XMM, 0));
+  XMMRef _t1(c->newVariable(VARIABLE_TYPE_XMM, 0));
+
+  XMMRegister t0 = _t0.r();
+  XMMRegister t1 = _t1.r();
+
+  switch (op->id())
+  {
+    case Operator::CompositeSrc:
+      // copy operation (optimized in frontends and also by Generator itself)
+      c->movdqa(dst0, src0);
+      c->movdqa(dst1, src1);
+      break;
+    case Operator::CompositeDest:
+      // no operation (optimized in frontends and also by Generator itself)
+      break;
+    case Operator::CompositeOver:
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, true,
+        t1, src1, dstAlphaPos, true);
+      g->_PackedMultiply_4(
+        dst0, t0, t0,
+        dst1, t1, t1);
+      c->paddusb(dst0, src0);
+      c->paddusb(dst1, src1);
+      break;
+    case Operator::CompositeOverReverse:
+      g->_ExtractAlpha_4(
+        t0, dst0, dstAlphaPos, true,
+        t1, dst1, dstAlphaPos, true);
+      g->_PackedMultiply_4(
+        src0, t0, t0,
+        src1, t1, t1);
+      c->paddusb(dst0, src0);
+      c->paddusb(dst1, src1);
+      break;
+    case Operator::CompositeIn:
+      g->_ExtractAlpha_4(
+        t0, dst0, dstAlphaPos, false,
+        t1, dst1, dstAlphaPos, false);
+      g->_PackedMultiply_4(
+        src0, t0, dst0,
+        src1, t1, dst1,
+        true);
+      break;
+    case Operator::CompositeInReverse:
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, false,
+        t1, src1, dstAlphaPos, false);
+      g->_PackedMultiply_4(
+        dst0, t0, t0,
+        dst1, t1, t1);
+      break;
+    case Operator::CompositeOut:
+      g->_ExtractAlpha_4(
+        t0, dst0, dstAlphaPos, true,
+        t1, dst1, dstAlphaPos, true);
+      g->_PackedMultiply_4(
+        src0, t0, dst0,
+        src1, t1, dst1,
+        true);
+      break;
+    case Operator::CompositeOutReverse:
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, true,
+        t1, src1, dstAlphaPos, true);
+      g->_PackedMultiply_4(
+        dst0, t0, t0,
+        dst1, t1, t1);
+      break;
+    case Operator::CompositeAtop:
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, true,
+        t1, dst0, dstAlphaPos, false);
+      g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+
+      g->_ExtractAlpha_4(
+        t0, src1, dstAlphaPos, true,
+        t1, dst1, dstAlphaPos, false);
+      g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
+      break;
+    case Operator::CompositeAtopReverse:
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, false,
+        t1, dst0, dstAlphaPos, true);
+      g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+
+      g->_ExtractAlpha_4(
+        t0, src1, dstAlphaPos, false,
+        t1, dst1, dstAlphaPos, true);
+      g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
+      break;
+    case Operator::CompositeXor:
+      g->_ExtractAlpha_4(
+        t0, src0, dstAlphaPos, true,
+        t1, dst0, dstAlphaPos, true);
+      g->_PackedMultiplyAdd(src0, t1, dst0, t0, dst0, true);
+
+      g->_ExtractAlpha_4(
+        t0, src1, dstAlphaPos, true,
+        t1, dst1, dstAlphaPos, true);
+      g->_PackedMultiplyAdd(src1, t1, dst1, t0, dst1, true);
+      break;
+    case Operator::CompositeClear:
+      // clear operation (optimized in frontends and also by Generator itself)
+      c->pxor(dst0, dst0);
+      c->pxor(dst1, dst1);
+      break;
+    case Operator::CompositeAdd:
+      c->paddusb(dst0, src0);
+      c->paddusb(dst1, src1);
+      break;
+    case Operator::CompositeSubtract:
+    case Operator::CompositeMultiply:
+    case Operator::CompositeScreen:
+    case Operator::CompositeDarken:
+    case Operator::CompositeLighten:
+    case Operator::CompositeDifference:
+    case Operator::CompositeExclusion:
+    case Operator::CompositeInvert:
+    case Operator::CompositeInvertRgb:
+    {
+      BLITJIT_ASSERT(0);
+      break;
+    }
+  }
+}
+
+// ============================================================================
+// [BlitJit::CreateModule Wrappers]
+// ============================================================================
 
 static FillModule* createFillModule(
   Generator* g,
@@ -1365,10 +1605,13 @@ Generator::Generator(Compiler* _c) : GeneratorBase(_c)
   _optimization = getOptimizationFromCpuFeatures(_features);
 
   // Turn ON prefetching by default
-  _prefetch = 1;
+  _prefetch = true;
+  _prefetch = false;
 
   // Turn OFF non-thermal hints by default
-  _nonThermalHint = 0;
+  _nonThermalHint = false;
+
+  _mainLoopAlignment = 16;
 
   // Body flags are clean by default
   _body = 0;
@@ -1438,7 +1681,7 @@ void Generator::genDemultiply(const PixelFormat& pfDst)
 }
 
 // ============================================================================
-// [BlitJit::Generator - fillSpan]
+// [BlitJit::Generator - Fill Span / Rect]
 // ============================================================================
 
 void Generator::genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op)
@@ -1492,7 +1735,7 @@ void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
 {
   c->comment("BlitJit::Generator::genFillRect() - %s <- %s : %s", pfDst.name(), pfSrc.name(), op.name());
 
-  f = c->newFunction(CConv, BuildFunction3<void*, const void*, SysUInt>());
+  f = c->newFunction(CConv, BuildFunction5<void*, const void*, SysInt, SysUInt, SysUInt>());
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -1505,13 +1748,12 @@ void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
     PtrRef dst(c->argument(0));
     PtrRef src(c->argument(1));
     SysIntRef dstStride(c->argument(2));
-    SysIntRef srcStride(c->argument(3));
-    SysIntRef width(c->argument(4));
-    SysIntRef height(c->argument(5));
+    SysIntRef width(c->argument(3));
+    SysIntRef height(c->argument(4));
 
     SysIntRef cnt(c->newVariable(VARIABLE_TYPE_SYSINT));
 
-    // Adjust dstStride and srcStride
+    // Adjust dstStride
     {
       SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT));
 
@@ -1519,7 +1761,6 @@ void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
       c->shl(t.r(), 2);
 
       c->sub(dstStride, t.r());
-      c->sub(srcStride, t.r());
     }
 
     cnt.alloc();
@@ -1536,17 +1777,19 @@ void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
 
     for (UInt32 kind = 0; kind < module->numKinds(); kind++)
     {
+      module->beginKind(kind);
+
       Label* L_Loop = c->newLabel();
       c->bind(L_Loop);
       c->mov(cnt.r(), width);
 
-      module->beginKind(kind);
       _GenFillLoop(dst, cnt, module, kind, loop);
-      module->endKind(kind);
 
       c->add(dst.r(), dstStride);
       c->sub(height, imm(1));
       c->jnz(L_Loop);
+
+      module->endKind(kind);
     }
 
     module->endSwitch();
@@ -1558,6 +1801,10 @@ void Generator::genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   // Cleanup
   delete module;
 }
+
+// ============================================================================
+// [BlitJit::Generator - Blit Span / Rect]
+// ============================================================================
 
 void Generator::genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op)
 {
@@ -1676,9 +1923,9 @@ void Generator::genBlitRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, 
   delete module;
 }
 
-// --------------------------------------------------------------------------
-// [Generator::Loops]
-// --------------------------------------------------------------------------
+// ==========================================================================
+// [BlitJit::Generator - Loops]
+// ==========================================================================
 
 // Calculate correct alignment. We need to use dstSize and pixels perLoop.
 // If perLoop is too short (1, maybe two pixels) alignment is in most cases
@@ -1742,6 +1989,7 @@ void Generator::_GenFillLoop(
   Label* L_TailEntry  = (perLoop > 1) ? c->newLabel() : NULL;
   Label* L_TailPre    = (perLoop > 1) ? c->newLabel() : NULL;
   Label* L_TailLoop   = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_TailSkipLargeJumpTable = c->newLabel();
   // End
   Label* L_End        = c->newLabel();
 
@@ -1759,7 +2007,7 @@ void Generator::_GenFillLoop(
     c->jb(L_TailLoop);
   }
 
-  // Align 4 bytes dst to 8 bytes. We are using trict that if alignment
+  // Align 4 bytes dst to 8 bytes. We are using trick that if alignment
   // fail, we will continue into main loop, because this type of alignment
   // is usually used together with MMX or X64 modes (no SSE and unaligned
   // exceptions here)
@@ -1826,6 +2074,7 @@ void Generator::_GenFillLoop(
     c->sub(cnt.r(), imm(perLoop));
     c->jc(L_TailEntry);
 
+    c->align(_mainLoopAlignment);
     c->bind(L_MainLoop);
 
     if (_prefetch && module->prefetchDst()) c->prefetch(ptr(dst.r(), perLoop * dstSize), PREFETCH_T0);
@@ -1838,6 +2087,7 @@ void Generator::_GenFillLoop(
   else
   {
     // One pixel at a time
+    c->align(_mainLoopAlignment);
     c->bind(L_MainLoop);
     module->processPixelsPtr(dst, 1, 0, kind, 0);
     c->add(dst.r(), imm(dstSize));
@@ -1847,14 +2097,20 @@ void Generator::_GenFillLoop(
 
   if (L_Misaligned)
   {
+    bool embedMisalignedTail = (perLoop > 8 && module->complexity() == Module::Simple);
+
     OutsideBlock block(c);
     Label* L_MisalignedLoop = c->newLabel();
+    Label* L_MisalignedTailEntry = embedMisalignedTail
+      ? c->newLabel() 
+      : L_TailEntry;
 
     // More pixels at a time
     c->bind(L_Misaligned);
     c->sub(cnt.r(), imm(perLoop));
-    c->jc(L_TailEntry);
+    c->jc(L_MisalignedTailEntry);
 
+    c->align(_mainLoopAlignment);
     c->bind(L_MisalignedLoop);
 
     if (_prefetch && module->prefetchDst()) c->prefetch(ptr(dst.r(), perLoop * dstSize), PREFETCH_T0);
@@ -1863,7 +2119,32 @@ void Generator::_GenFillLoop(
     c->add(dst.r(), imm(perLoop * dstSize));
     c->sub(cnt.r(), imm(perLoop));
     c->jnc(L_MisalignedLoop);
-    c->jmp(L_TailEntry);
+
+    if (!embedMisalignedTail)
+    {
+      c->jmp(L_TailEntry);
+    }
+    else
+    {
+      // Misaligned tail loop
+      JumpTable* jumpTable = c->newJumpTable();
+      jumpTable->addLabel(L_TailSkipLargeJumpTable, 0);
+
+      tmp.use(c->newVariable(VARIABLE_TYPE_SYSINT));
+      c->mov(tmp.x(), cnt.r());
+      c->shr(tmp.r(), 2);
+      c->jumpToTable(jumpTable, tmp.r());
+      tmp.unuse();
+
+      for (SysInt j = (perLoop / 4) - 1; j > 0; j--)
+      {
+        c->bind(jumpTable->addLabel(NULL, j));
+        module->processPixelsPtr(dst, 4, 0, kind, 0);
+        c->add(dst.r(), imm(dstSize * 4));
+      }
+      c->and_(cnt.r(), 3);
+      c->jmp(L_TailSkipLargeJumpTable);
+    }
   }
 
   // Tail (only if more pixels at a time loop is used)
@@ -1911,11 +2192,11 @@ void Generator::_GenFillLoop(
       for (SysInt j = (i / 4) - 1; j > 0; j--, i -= 4)
       {
         c->bind(jumpTable->addLabel(NULL, j));
-        module->processPixelsPtr(dst, 4, 0, kind, 0);
+        module->processPixelsPtr(dst, 4, 0, kind, Module::DstAligned);
         c->add(dst.r(), imm(dstSize * 4));
       }
       c->and_(cnt.r(), 3);
-      c->bind(L_Skip);
+      c->bind(L_TailSkipLargeJumpTable);
     }
 
     // Last few pixels will be processed through jump table
@@ -1981,6 +2262,7 @@ void Generator::_GenCompositeLoop(
   Label* L_TailEntry  = (perLoop > 1) ? c->newLabel() : NULL;
   Label* L_TailPre    = (perLoop > 1) ? c->newLabel() : NULL;
   Label* L_TailLoop   = (perLoop > 1) ? c->newLabel() : NULL;
+  Label* L_TailSkipLargeJumpTable = c->newLabel();
   // End
   Label* L_End        = c->newLabel();
 
@@ -1999,7 +2281,7 @@ void Generator::_GenCompositeLoop(
     c->jb(L_TailLoop);
   }
 
-  // Align 4 bytes dst to 8 bytes. We are using trict that if alignment
+  // Align 4 bytes dst to 8 bytes. We are using trick that if alignment
   // fail, we will continue into main loop, because this type of alignment
   // is usually used together with MMX or X64 modes (no SSE and unaligned
   // exceptions here)
@@ -2068,6 +2350,7 @@ void Generator::_GenCompositeLoop(
     c->sub(cnt.r(), imm(perLoop));
     c->jc(L_TailEntry);
 
+    c->align(_mainLoopAlignment);
     c->bind(L_MainLoop);
 
     if (_prefetch && module->prefetchSrc()) c->prefetch(ptr(src.r(), perLoop * srcSize), PREFETCH_T0);
@@ -2082,6 +2365,7 @@ void Generator::_GenCompositeLoop(
   else
   {
     // One pixel at a time
+    c->align(_mainLoopAlignment);
     c->bind(L_MainLoop);
     module->processPixelsPtr(dst, src, 1, 0, kind, 0);
     c->add(dst.r(), imm(dstSize));
@@ -2092,14 +2376,20 @@ void Generator::_GenCompositeLoop(
 
   if (L_Misaligned)
   {
+    bool embedMisalignedTail = (perLoop > 8 && module->complexity() == Module::Simple);
+
     OutsideBlock block(c);
     Label* L_MisalignedLoop = c->newLabel();
+    Label* L_MisalignedTailEntry = embedMisalignedTail
+      ? c->newLabel() 
+      : L_TailEntry;
 
     // More pixels at a time
     c->bind(L_Misaligned);
     c->sub(cnt.r(), imm(perLoop));
-    c->jc(L_TailEntry);
+    c->jc(L_MisalignedTailEntry);
 
+    c->align(_mainLoopAlignment);
     c->bind(L_MisalignedLoop);
 
     if (_prefetch && module->prefetchSrc()) c->prefetch(ptr(src.r(), perLoop * srcSize), PREFETCH_T0);
@@ -2110,7 +2400,33 @@ void Generator::_GenCompositeLoop(
     c->add(src.r(), imm(perLoop * srcSize));
     c->sub(cnt.r(), imm(perLoop));
     c->jnc(L_MisalignedLoop);
-    c->jmp(L_TailEntry);
+
+    if (!embedMisalignedTail)
+    {
+      c->jmp(L_TailEntry);
+    }
+    else
+    {
+      // Misaligned tail loop
+      JumpTable* jumpTable = c->newJumpTable();
+      jumpTable->addLabel(L_TailSkipLargeJumpTable, 0);
+
+      tmp.use(c->newVariable(VARIABLE_TYPE_SYSINT));
+      c->mov(tmp.x(), cnt.r());
+      c->shr(tmp.r(), 2);
+      c->jumpToTable(jumpTable, tmp.r());
+      tmp.unuse();
+
+      for (SysInt j = (perLoop / 4) - 1; j > 0; j--)
+      {
+        c->bind(jumpTable->addLabel(NULL, j));
+        module->processPixelsPtr(dst, src, 4, 0, kind, 0);
+        c->add(dst.r(), imm(dstSize * 4));
+        c->add(src.r(), imm(srcSize * 4));
+      }
+      c->and_(cnt.r(), 3);
+      c->jmp(L_TailSkipLargeJumpTable);
+    }
   }
 
   // Tail (only if more pixels at a time loop is used)
@@ -2147,8 +2463,7 @@ void Generator::_GenCompositeLoop(
     if (i > 8)
     {
       JumpTable* jumpTable = c->newJumpTable();
-      Label* L_Skip = c->newLabel();
-      jumpTable->addLabel(L_Skip, 0);
+      jumpTable->addLabel(L_TailSkipLargeJumpTable, 0);
 
       tmp.use(c->newVariable(VARIABLE_TYPE_SYSINT));
       c->mov(tmp.x(), cnt.r());
@@ -2159,12 +2474,12 @@ void Generator::_GenCompositeLoop(
       for (SysInt j = (i / 4) - 1; j > 0; j--, i -= 4)
       {
         c->bind(jumpTable->addLabel(NULL, j));
-        module->processPixelsPtr(dst, src, 4, 0, kind, 0);
+        module->processPixelsPtr(dst, src, 4, 0, kind, Module::DstAligned);
         c->add(dst.r(), imm(dstSize * 4));
         c->add(src.r(), imm(srcSize * 4));
       }
       c->and_(cnt.r(), 3);
-      c->bind(L_Skip);
+      c->bind(L_TailSkipLargeJumpTable);
     }
 
     // Last few pixels will be processed through jump table
@@ -2201,6 +2516,8 @@ void Generator::_GenCompositeLoop(
 
   // End
   c->bind(L_End);
+
+  BLITJIT_ASSERT(!L_TailSkipLargeJumpTable->isLinked());
 }
 
 // ============================================================================
@@ -2576,13 +2893,14 @@ void Generator::_PackedMultiplyAdd_4(
   XMMRegister r = xmm0080().c();
 
   c->pmullw(a0, b0);          // a0 *= b0
-  c->pmullw(c0, d0);          // c0 *= d0
-
   c->pmullw(e0, f0);          // e0 *= f0
-  c->pmullw(g0, h0);          // g0 *= h0
 
   c->paddusw(a0, r);          // a0 += 80
+  c->pmullw(c0, d0);          // c0 *= d0
+
   c->paddusw(e0, r);          // e0 += 80
+  c->pmullw(g0, h0);          // g0 *= h0
+
   c->paddusw(a0, c0);         // a0 += c0
   c->paddusw(e0, g0);         // e0 += g0
 
@@ -2606,6 +2924,19 @@ void Generator::_PackedMultiplyAdd_4(
     c->psrlw(t0, 8);          // t0 /= 256
     c->psrlw(t1, 8);          // t1 /= 256
   }
+}
+
+void Generator::_Premultiply_1(
+  const XMMRef& pix0)
+{
+  int alphaPos0 = 3;
+  XMMRef a0(c->newVariable(VARIABLE_TYPE_XMM));
+
+  c->pshuflw(a0.r(), pix0.r(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+  c->pshufhw(a0.r(), a0.r()  , mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+  c->por(a0.r(), BLITJIT_GETCONST(this, Cx00FF00000000000000FF000000000000));
+
+  _PackedMultiply(pix0.r(), a0.r(), a0.r());
 }
 
 } // BlitJit namespace

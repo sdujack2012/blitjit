@@ -44,7 +44,8 @@ Module::Module(Generator* g) :
   _complexity(Simple),
   _isNop(false),
   _prefetchDst(true),
-  _prefetchSrc(true)
+  _prefetchSrc(true),
+  _oldKindPos(NULL)
 {
   setNumKinds(1);
   _bail = c->newLabel();
@@ -65,12 +66,21 @@ void Module::endSwitch()
 
 void Module::beginKind(UInt32 kind)
 {
+  if (kind > 0 )
+  {
+    _oldKindPos = c->setCurrent(c->lastEmittable());
+  }
   c->bind(getKindLabel(kind));
 }
 
 void Module::endKind(UInt32 kind)
 {
-  if (kind > 0) c->jmp(_bail);
+  if (kind > 0)
+  {
+    c->jmp(_bail);
+    c->setCurrent(_oldKindPos);
+    _oldKindPos = NULL;
+  }
 }
 
 void Module::setNumKinds(UInt32 kinds)
