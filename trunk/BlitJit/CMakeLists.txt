@@ -2,7 +2,7 @@
 CMake_Minimum_Required(VERSION 2.6)
 
 # AsmJit project - Need to use both C and C++
-Project(BlitJit C CXX)
+# Project(BlitJit C CXX)
 
 # If BLITJIT_DIR is not specified, assume that we are building it from here
 If(NOT BLITJIT_DIR)
@@ -11,24 +11,31 @@ EndIf(NOT BLITJIT_DIR)
 
 # BlitJit C++ sources
 Set(BLITJIT_SOURCES
-  ${BLITJIT_DIR}/BlitJit/Api.cpp
-  ${BLITJIT_DIR}/BlitJit/CodeManager.cpp
-  ${BLITJIT_DIR}/BlitJit/Generator.cpp
-  ${BLITJIT_DIR}/BlitJit/GeneratorPrivate.cpp
+  ${BLITJIT_DIR}/BlitJit/BlitJit.cpp
+  ${BLITJIT_DIR}/BlitJit/Constants_p.cpp
+  ${BLITJIT_DIR}/BlitJit/Generator_p.cpp
+  ${BLITJIT_DIR}/BlitJit/Module_p.cpp
+  ${BLITJIT_DIR}/BlitJit/Module_MemSet_p.cpp
+  ${BLITJIT_DIR}/BlitJit/Module_MemCpy_p.cpp
+  ${BLITJIT_DIR}/BlitJit/Module_Fill_p.cpp
+  ${BLITJIT_DIR}/BlitJit/Module_Blit_p.cpp
 )
 
 # BlitJit C++ headers
 Set(BLITJIT_HEADERS
-  ${BLITJIT_DIR}/BlitJit/Api.h
   ${BLITJIT_DIR}/BlitJit/BlitJit.h
   ${BLITJIT_DIR}/BlitJit/Build.h
-  ${BLITJIT_DIR}/BlitJit/CodeManager.h
   ${BLITJIT_DIR}/BlitJit/Config.h
-  ${BLITJIT_DIR}/BlitJit/Generator.h
-  ${BLITJIT_DIR}/BlitJit/GeneratorPrivate.h
+  ${BLITJIT_DIR}/BlitJit/Constants_p.h
+  ${BLITJIT_DIR}/BlitJit/Generator_p.h
+  ${BLITJIT_DIR}/BlitJit/Module_p.h
+  ${BLITJIT_DIR}/BlitJit/Module_MemSet_p.h
+  ${BLITJIT_DIR}/BlitJit/Module_MemCpy_p.h
+  ${BLITJIT_DIR}/BlitJit/Module_Fill_p.h
+  ${BLITJIT_DIR}/BlitJit/Module_Blit_p.h
 )
 
-# Include AsmJit to be able to use #include <AsmJit/...>
+# Include BlitJit to be able to use #include <BlitJit/...>
 Include_Directories(${BLITJIT_DIR})
 
 # pthread library is needed for non-windows OSes.
