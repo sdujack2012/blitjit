@@ -231,6 +231,7 @@ void Module_Fill_32_SSE2::processPixelsPtr(
           Label* end = c->newLabel();
 
           c->mov(mskVal.x(), ptr(msk->r(), mskDisp));
+          c->test(mskVal.x(), mskVal.x());
           c->jz(end);
           c->movd(msk0.x(), mskVal.c());
 
@@ -304,6 +305,7 @@ void Module_Fill_32_SSE2::processPixelsPtr(
           Label* end = c->newLabel();
 
           c->mov(mskVal.x(), ptr(msk->r(), mskDisp));
+          c->test(mskVal.x(), mskVal.x());
           c->jz(end);
 
           c->movd(msk0.x(), mskVal.c());
@@ -334,8 +336,6 @@ void Module_Fill_32_SSE2::processPixelsPtr(
           c->movd(ptr(dst->c(), dstDisp), dst0.r());
 
           c->bind(end);
-
-          // c->mov(ptr(dst->c(), dstDisp), srcgp.r());
 
           offset++;
           i--;
