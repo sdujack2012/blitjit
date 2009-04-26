@@ -69,7 +69,7 @@ Module_MemSet32::~Module_MemSet32()
 {
 }
 
-void Module_MemSet32::init(PtrRef& _src, const PixelFormat* srcPf)
+void Module_MemSet32::init(PtrRef& _src)
 {
   c->mov(srcgp.x32(), ptr(_src.c()));
 

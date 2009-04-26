@@ -49,7 +49,7 @@ struct BLITJIT_HIDDEN Module_MemSet32 : public Module_Fill
     const Operator* op);
   virtual ~Module_MemSet32();
 
-  virtual void init(AsmJit::PtrRef& _src, const PixelFormat* srcPf);
+  virtual void init(AsmJit::PtrRef& _src);
   virtual void free();
 
   virtual void processPixelsPtr(
