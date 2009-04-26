@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <AsmJit/AsmJitCompiler.h>
 #include <BlitJit/BlitJit.h>
 
 #include <SDL.h>
@@ -29,7 +28,168 @@ typedef unsigned char DATA8;
 typedef unsigned short DATA16;
 typedef unsigned int DATA32;
 
-static BlitJit::CodeManager codemgr;
+
+
+
+
+
+
+
+
+
+
+struct BLITJIT_API CodeManager
+{
+  CodeManager();
+  ~CodeManager();
+
+  BlitJit::FillSpanFn getFillSpan(DATA32 dId, DATA32 sId, DATA32 oId);
+  BlitJit::FillRectFn getFillRect(DATA32 dId, DATA32 sId, DATA32 oId);
+
+  BlitJit::BlitSpanFn getBlitSpan(DATA32 dId, DATA32 sId, DATA32 oId);
+  BlitJit::BlitRectFn getBlitRect(DATA32 dId, DATA32 sId, DATA32 oId);
+
+  // Functions
+  enum
+  {
+    _Cnt = BlitJit::PixelFormat::Count * 
+           BlitJit::PixelFormat::Count * 
+           BlitJit::Operator::Count,
+
+    FillSpanFnCount = _Cnt,
+    FillRectFnCount = _Cnt,
+
+    BlitSpanFnCount = _Cnt,
+    BlitRectFnCount = _Cnt,
+  };
+
+  // Cache
+  BlitJit::FillSpanFn _fillSpan[FillSpanFnCount];
+  BlitJit::FillRectFn _fillRect[FillSpanFnCount];
+
+  BlitJit::BlitSpanFn _blitSpan[BlitSpanFnCount];
+  BlitJit::BlitRectFn _blitRect[BlitRectFnCount];
+};
+
+static inline DATA32 calcPfPfOp(DATA32 dId, DATA32 sId, DATA32 oId)
+{
+  return (dId * BlitJit::Operator::Count * BlitJit::PixelFormat::Count +
+          sId * BlitJit::Operator::Count +
+          oId);
+}
+
+CodeManager::CodeManager()
+{
+  memset(_fillSpan, 0, sizeof(_fillSpan));
+  memset(_blitSpan, 0, sizeof(_blitSpan));
+  memset(_fillRect, 0, sizeof(_fillRect));
+  memset(_blitRect, 0, sizeof(_blitRect));
+}
+
+CodeManager::~CodeManager()
+{
+}
+
+BlitJit::FillSpanFn CodeManager::getFillSpan(DATA32 dId, DATA32 sId, DATA32 oId)
+{
+  DATA32 pos = calcPfPfOp(dId, sId, oId);
+  BlitJit::FillSpanFn fn;
+
+  if ((fn = _fillSpan[pos]) != NULL)
+  {
+    return fn;
+  }
+  else
+  {
+    _fillSpan[pos] = fn = BlitJit::Api::genFillSpan(
+      &BlitJit::Api::pixelFormats[dId],
+      &BlitJit::Api::pixelFormats[sId],
+      &BlitJit::Api::operators[oId]);
+    return fn;
+  }
+}
+
+BlitJit::FillRectFn CodeManager::getFillRect(DATA32 dId, DATA32 sId, DATA32 oId)
+{
+  DATA32 pos = calcPfPfOp(dId, sId, oId);
+  BlitJit::FillRectFn fn;
+  
+  if ((fn = _fillRect[pos]) != NULL)
+  {
+    return fn;
+  }
+  else
+  {
+    _fillRect[pos] = fn = BlitJit::Api::genFillRect(
+      &BlitJit::Api::pixelFormats[dId],
+      &BlitJit::Api::pixelFormats[sId],
+      &BlitJit::Api::operators[oId]);
+    return fn;
+  }
+}
+
+BlitJit::BlitSpanFn CodeManager::getBlitSpan(DATA32 dId, DATA32 sId, DATA32 oId)
+{
+  DATA32 pos = calcPfPfOp(dId, sId, oId);
+  BlitJit::BlitSpanFn fn;
+
+  if ((fn = _blitSpan[pos]) != NULL)
+  {
+    return fn;
+  }
+  else
+  {
+    _blitSpan[pos] = fn = BlitJit::Api::genBlitSpan(
+      &BlitJit::Api::pixelFormats[dId],
+      &BlitJit::Api::pixelFormats[sId],
+      &BlitJit::Api::operators[oId]);
+    return fn;
+  }
+}
+
+BlitJit::BlitRectFn CodeManager::getBlitRect(DATA32 dId, DATA32 sId, DATA32 oId)
+{
+  DATA32 pos = calcPfPfOp(dId, sId, oId);
+  BlitJit::BlitRectFn fn;
+  
+  if ((fn = _blitRect[pos]) != NULL)
+  {
+    return fn;
+  }
+  else
+  {
+    _blitRect[pos] = fn = BlitJit::Api::genBlitRect(
+      &BlitJit::Api::pixelFormats[dId],
+      &BlitJit::Api::pixelFormats[sId],
+      &BlitJit::Api::operators[oId]);
+    return fn;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+static CodeManager codemgr;
 
 static inline DATA32 premultiply(DATA32 x)
 {
@@ -126,31 +286,11 @@ AbstractImage::~AbstractImage()
 
 void AbstractImage::clear(DATA32 c)
 {
-  unsigned long x, y;
-
-  for (y = 0; y != (unsigned long)_h; y++)
-  {
-    DATA8* p = scanline(y);
-
-    // unrolled loop is always faster (this is basic step for optimization)
-    for (x = _w >> 2; x; x--, p += 16)
-    {
-      ((DATA32 *)p)[0] = c;
-      ((DATA32 *)p)[1] = c;
-      ((DATA32 *)p)[2] = c;
-      ((DATA32 *)p)[3] = c;
-    }
-
-    for (x = _w & 3; x; x--, p += 4)
-    {
-      ((DATA32 *)p)[0] = c;
-    }
-  }
+  fill(0, 0, _w, _h, c, BlitJit::Operator::CompositeSrc);
 }
 
 void AbstractImage::fill(int x, int y, int w, int h, DATA32 rgba, DATA32 op)
 {
-/*
   int x1 = x;
   int y1 = y;
   int x2 = x + w;
@@ -158,28 +298,35 @@ void AbstractImage::fill(int x, int y, int w, int h, DATA32 rgba, DATA32 op)
 
   if (x1 < 0) x1 = 0;
   if (y2 < 0) y2 = 0;
-  if (x2 >= surf->w) x2 = surf->w-1;
-  if (y2 >= surf->h) y2 = surf->h-1;
+  if (x2 >= _w) x2 = _w-1;
+  if (y2 >= _h) y2 = _h-1;
 
   if (x1 >= x2 || y1 >= y2) return;
 
-  w = x2 - x1;
-  h = y2 - y1;
+  int fillw = x2 - x1;
+  int fillh = y2 - y1;
 
+  BlitJit::UInt8* dstPixels = (BlitJit::UInt8*)scanline();
+  BlitJit::SysInt dstStride = (BlitJit::SysInt)stride();
+
+  dstPixels += y * dstStride + x * 4;
+
+  BlitJit::FillRectFn fillRect = codemgr.getFillRect(
+    BlitJit::PixelFormat::ARGB32,
+    BlitJit::PixelFormat::ARGB32,
+    op);
+  fillRect(dstPixels, &rgba, dstStride, (BlitJit::SysUInt)fillw, (BlitJit::SysUInt)fillh);
+
+/*
   BlitJit::FillSpanFn fillSpan = codemgr.getFillSpan(
     BlitJit::PixelFormat::ARGB32,
     BlitJit::PixelFormat::ARGB32,
-    BlitJit::Operation::CombineCopy);
-
-  BlitJit::UInt8* pixels = (BlitJit::UInt8*)surf->pixels;
-  BlitJit::SysInt stride = (BlitJit::SysInt)surf->pitch;
-
-  pixels += y * stride + x * 4;
+    op);
 
   BlitJit::SysUInt i;
-  for (i = 0; i < (BlitJit::SysUInt)h; i++, pixels += stride)
+  for (i = 0; i < (BlitJit::SysUInt)fillh; i++, dstPixels += dstStride)
   {
-    fillSpan(pixels, rgba, (BlitJit::SysUInt)w);
+    fillSpan(dstPixels, &rgba, (BlitJit::SysUInt)fillw);
   }
 */
 }
@@ -216,8 +363,6 @@ void AbstractImage::blit(int x, int y, AbstractImage* img, DATA32 op)
     BlitJit::PixelFormat::ARGB32,
     BlitJit::PixelFormat::ARGB32,
     op);
-  //printf("BLIT\n");
-  //fprintf(stderr, "%llX\n", (long long)blitRect);
   blitRect(dstPixels, srcPixels, dstStride, srcStride, (BlitJit::SysUInt)bltw, (BlitJit::SysUInt)blth);
 
 /*
@@ -642,7 +787,7 @@ int Application::run(int width, int height, int depth)
 
 int Application::init(int width, int height, int depth)
 {
-  if (SDL_Init(SDL_INIT_EVERYTHING) < 0)
+  if (SDL_Init(SDL_INIT_VIDEO) < 0)
   {
     fprintf(stderr, "SDL_Init() failed: %s\n", SDL_GetError());
     return 1;
@@ -683,9 +828,7 @@ void log(const char* fmt, ...)
   va_list ap;
   va_start(ap, fmt);
 
-  //FILE* f = fopen("./log.txt", "a");
   vfprintf(stderr, fmt, ap);
-  //fclose(f);
 
   va_end(ap);
 }
@@ -696,24 +839,26 @@ void Application::onRender()
 
   int count = 10000;
 
+#if 1
   // printf("BlitJit - Copy: %d\n", test_BlitJit_Blit(count));
   // printf("BlitJit - Blend: %d\n", test_BlitJit_Blend(count));
 
   // printf("Sdl - Copy: %d\n", test_Sdl_Blit(count));
   // printf("Sdl - Blend: %d\n", test_Sdl_Blend(count));
 
-  // printf("Gdi - Copy: %d\n", test_Gdi_Blit(count));
-  // printf("Gdi - Blend: %d\n", test_Gdi_Blend(count));
-
   // printf("Cairo - Copy: %d\n", test_Cairo_Blit(count));
   // printf("Cairo - Blend: %d\n", test_Cairo_Blend(count));
+
+  // printf("Gdi - Copy: %d\n", test_Gdi_Blit(count));
+  // printf("Gdi - Blend: %d\n", test_Gdi_Blend(count));
+#endif
 
 #if 0
   BenchmarkIt benchmark;
   benchmark.start();
   for (int p = 0; p < 1000; p++)
   {
-    for (int a = 0; a < BlitJit::Operation::Count; a++)
+    for (int a = 0; a < BlitJit::Operator::Count; a++)
     {
       AsmJit::Compiler c;
       BlitJit::Generator gen(&c);
@@ -728,23 +873,77 @@ void Application::onRender()
   benchmark.delta();
   printf("Time %d, %g per one function \n", 
     benchmark.t,
-    (double)benchmark.t / (double)(1000*BlitJit::Operation::Count));
+    (double)benchmark.t / (double)(1000*BlitJit::Operator::Count));
+#endif
+
+#if 0
+  screen->clear(0xFFFFFFFF);
+
+  for (BlitJit::SysUInt i = 0; i < BlitJit::Operator::Count; i++)
+  {
+    codemgr.getBlitRect(
+      BlitJit::PixelFormat::ARGB32,
+      BlitJit::PixelFormat::ARGB32,
+      i);
+    screen->blit(3, 1, img[0], i);
+  }
+
 #endif
 
 #if 1
+  /*
+  {
+    int x = 0, y = 0;
+    screen->clear(0xFF000000);
+    for (BlitJit::SysUInt i = 0; i < BlitJit::Operator::Count; i++)
+    {
+      screen->fill(x * 150, y * 130, 128, 128, 0xFFFFFFFF, i);
+      if (++x == 6) { x = 0; y++; }
+    }
+  }
+  */
+
+  BenchmarkIt benchmark;
+  benchmark.start();
+
+  for (int i = 0; i < count; i++)
+  {
+    int size = 16;
+    screen->fill(
+      rand() % (screen->w() - size), rand() % (screen->h() - size),
+      size, size,
+      rand() | (rand() << 16),
+      BlitJit::Operator::CompositeOver);
+    /*
+    int x = 0, y = 0;
+    screen->clear(0xFF000000);
+    for (BlitJit::SysUInt i = 0; i < 20; i++)
+    {
+      screen->fill(
+        x * 150, y * 130, 128, 128,
+        0x00FFFFFF | ((255 * i / 19) << 24),
+        BlitJit::Operator::CompositeOver);
+      if (++x == 6) { x = 0; y++; }
+    }*/
+  }
+
+  printf ("Bench:%u\n", (unsigned int)benchmark.delta());
+#endif
+
+#if 0
   int w = screen->w();
   int h = screen->h();
 
   {
     int x = 0, y = 0;
-    screen->clear(0x00000000);
-    for (BlitJit::SysUInt i = 0; i < BlitJit::Operation::Count; i++)
+    screen->clear(0xFF00FF00);
+    for (BlitJit::SysUInt i = 0; i < BlitJit::Operator::Count; i++)
     {
       SdlImage* s = new SdlImage(128, 128);
 
-      s->blit(0, 0, img[0], BlitJit::Operation::CompositeSrc);
+      s->blit(0, 0, img[0], BlitJit::Operator::CompositeSrc);
       s->blit(0, 0, img[1], i);
-      screen->blit(x * 150, y * 130, s, BlitJit::Operation::CompositeOver);
+      screen->blit(x * 150, y * 130, s, BlitJit::Operator::CompositeOver);
       delete s;
 
       if (++x == 6) { x = 0; y++; }
@@ -763,7 +962,7 @@ void Application::onRender()
 
 void Application::onPause()
 {
-  SDL_Delay(25);
+  SDL_Delay(1);
 }
 
 void Application::onEvent(SDL_Event* ev)
@@ -788,7 +987,7 @@ int Application::test_BlitJit_Blit(int count)
     screen->blit(
       rand() % (screen->w() - s->w()), rand() % (screen->h() - s->h()),
       s,
-      BlitJit::Operation::CompositeSrc);
+      BlitJit::Operator::CompositeSrc);
   }
 
   return benchmark.delta();
@@ -805,7 +1004,7 @@ int Application::test_BlitJit_Blend(int count)
     screen->blit(
       rand() % (screen->w() - s->w()), rand() % (screen->h() - s->h()),
       s,
-      BlitJit::Operation::CompositeOver);
+      BlitJit::Operator::CompositeOver);
   }
 
   return benchmark.delta();
@@ -869,10 +1068,10 @@ int Application::test_Gdi_Blit(int count)
 {
 #if defined(ASMJIT_WINDOWS)
   DibImage* di_screen = new DibImage(screen->w(), screen->h());
-  di_screen->blit(0, 0, screen, BlitJit::Operation::CompositeSrc);
+  di_screen->blit(0, 0, screen, BlitJit::Operator::CompositeSrc);
 
   DibImage* di_0 = new DibImage(img[0]->w(), img[0]->h());
-  di_0->blit(0, 0, img[0], BlitJit::Operation::CompositeSrc);
+  di_0->blit(0, 0, img[0], BlitJit::Operator::CompositeSrc);
 
   BenchmarkIt benchmark;
   benchmark.start();
@@ -890,7 +1089,7 @@ int Application::test_Gdi_Blit(int count)
 
   benchmark.delta();
 
-  screen->blit(0, 0, di_screen, BlitJit::Operation::CompositeSrc);
+  screen->blit(0, 0, di_screen, BlitJit::Operator::CompositeSrc);
 
   delete di_screen;
   delete di_0;
@@ -905,10 +1104,10 @@ int Application::test_Gdi_Blend(int count)
 {
 #if defined(ASMJIT_WINDOWS)
   DibImage* di_screen = new DibImage(screen->w(), screen->h());
-  di_screen->blit(0, 0, screen, BlitJit::Operation::CompositeSrc);
+  di_screen->blit(0, 0, screen, BlitJit::Operator::CompositeSrc);
 
   DibImage* di_0 = new DibImage(img[0]->w(), img[0]->h());
-  di_0->blit(0, 0, img[0], BlitJit::Operation::CompositeSrc);
+  di_0->blit(0, 0, img[0], BlitJit::Operator::CompositeSrc);
 
   BLENDFUNCTION bf;
   bf.BlendOp = AC_SRC_OVER;
@@ -933,7 +1132,7 @@ int Application::test_Gdi_Blend(int count)
 
   benchmark.delta();
 
-  screen->blit(0, 0, di_screen, BlitJit::Operation::CompositeSrc);
+  screen->blit(0, 0, di_screen, BlitJit::Operator::CompositeSrc);
 
   delete di_screen;
   delete di_0;
