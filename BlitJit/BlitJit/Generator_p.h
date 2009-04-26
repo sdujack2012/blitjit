@@ -31,16 +31,34 @@
 #include <AsmJit/Compiler.h>
 
 #include "Build.h"
+#include "BlitJit.h"
 
 namespace BlitJit {
 
-//! @addtogroup BlitJit_Generator
+//! @addtogroup BlitJit_Private
 //! @{
 
-// forward declarations
+// ============================================================================
+// [Forward Declarations]
+// ============================================================================
+
 struct Module;
-struct FillModule;
-struct CompositeModule;
+struct Module_Filter;
+struct Module_Fill;
+struct Module_Blit;
+
+// ============================================================================
+// [BlitJit::Macros]
+// ============================================================================
+
+#define BLITJIT_DISPCONST(__cname__) \
+  (SysInt)( (UInt8 *)&Constants::instance->__cname__ - (UInt8 *)Constants::instance )
+
+#define BLITJIT_GETCONST(__generator__, __name__) \
+  __generator__->getConstantsOperand(BLITJIT_DISPCONST(__name__))
+
+#define BLITJIT_GETCONST_WITH_DISPLACEMENT(__generator__, __name__, __disp__) \
+  __generator__->getConstantsOperand(BLITJIT_DISPCONST(__name__) + __disp__)
 
 // ============================================================================
 // [BlitJit::GeneratorBase]
@@ -76,7 +94,7 @@ struct BLITJIT_API Generator : public GeneratorBase
   // --------------------------------------------------------------------------
 
   // We are not using AsmJit namespace in header files, this is convenience for
-  // code readibility. These types are used many times in Generator.
+  // code readibility. These types are used a lot in Generator.
 
   typedef AsmJit::MMData MMData;
   typedef AsmJit::XMMData XMMData;
@@ -142,30 +160,56 @@ struct BLITJIT_API Generator : public GeneratorBase
   // --------------------------------------------------------------------------
 
   //! @brief Generate pixel premultiply function.
-  void genPremultiply(const PixelFormat& pfDst);
+  void genPremultiply(const PixelFormat* dstPf);
 
   //! @brief Generate pixel demultiply function.
-  void genDemultiply(const PixelFormat& pfDst);
+  void genDemultiply(const PixelFormat* dstPf);
 
   // --------------------------------------------------------------------------
   // [FillSpan / FillRect]
   // --------------------------------------------------------------------------
 
   //! @brief Generate fill span function.
-  void genFillSpan(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op);
+  void genFillSpan(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf, 
+    const Operator* op);
+
+  //! @brief Generate fill span with mask function.
+  void genFillSpanWithMask(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf,
+    const PixelFormat* pfMask,
+    const Operator* op);
 
   //! @brief Generate fill rect function.
-  void genFillRect(const PixelFormat& pfDst, const PixelFormat& pfSrc, const Operator& op);
+  void genFillRect(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf,
+    const Operator* op);
+
+  //! @brief Generate fill rect with mask function.
+  void genFillRectWithMask(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf,
+    const PixelFormat* pfMask,
+    const Operator* op);
 
   // --------------------------------------------------------------------------
   // [BlitSpan / BlitRect]
   // --------------------------------------------------------------------------
 
   //! @brief Generate blit span function.
-  void genBlitSpan(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operator& op);
+  void genBlitSpan(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf,
+    const Operator* op);
 
   //! @brief Generate blit rect function.
-  void genBlitRect(const PixelFormat& pfDst, const PixelFormat& pdSrc, const Operator& op);
+  void genBlitRect(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf,
+    const Operator* op);
 
   // --------------------------------------------------------------------------
   // [Loops]
@@ -176,18 +220,12 @@ struct BLITJIT_API Generator : public GeneratorBase
     bool finalizePointers;
   };
 
-  void _GenFillLoop(
-    PtrRef& dst,
-    SysIntRef& cnt,
-    FillModule* module,
-    UInt32 kind,
-    const Loop& loop);
-
-  void _GenCompositeLoop(
-    PtrRef& dst,
-    PtrRef& src,
-    SysIntRef& cnt,
-    CompositeModule* module,
+  void _GenLoop(
+    PtrRef* dst,
+    PtrRef* src,
+    PtrRef* msk,
+    SysIntRef* cnt,
+    Module* module,
     UInt32 kind,
     const Loop& loop);
 
@@ -217,6 +255,16 @@ struct BLITJIT_API Generator : public GeneratorBase
   // [Generator Helpers]
   // --------------------------------------------------------------------------
 
+  void Generator::_CompositePixels(
+    const XMMRef& dst0, const XMMRef& src0, int alphaPos0,
+    const Operator* op,
+    bool two);
+
+  void Generator::_CompositePixels_4(
+    const XMMRef& dst0, const XMMRef& src0, int alphaPos0,
+    const XMMRef& dst1, const XMMRef& src1, int alphaPos1,
+    const Operator* op);
+
   //! @brief Extract alpha channel.
   //! @param dst0 Destination XMM register (can be same as @a src).
   //! @param src0 Source XMM register.
@@ -225,22 +273,22 @@ struct BLITJIT_API Generator : public GeneratorBase
   //! @param alphaPos Alpha position.
   //! @param negate Whether to negate extracted alpha values (255 - alpha).
   void _ExtractAlpha(
-    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0, bool two);
+    const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0, bool two);
 
   void _ExtractAlpha_4(
-    const XMMRegister& dst0, const XMMRegister& src0, UInt8 alphaPos0, UInt8 negate0,
-    const XMMRegister& dst1, const XMMRegister& src1, UInt8 alphaPos1, UInt8 negate1);
+    const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0,
+    const XMMRef& dst1, const XMMRef& src1, UInt8 alphaPos1, UInt8 negate1);
 
   // moveToT0 false:
   //   a0 = (a0 * b0) / 255, t0 is destroyed.
   // moveToT0 true:
   //   t0 = (a0 * b0) / 255, a0 is destroyed.
   void _PackedMultiply(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
+    const XMMRef& a0, const XMMRef& b0, const XMMRef& t0,
     bool moveToT0 = false);
 
   void _PackedMultiplyWithAddition(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0);
+    const XMMRef& a0, const XMMRef& b0, const XMMRef& t0);
 
   // moveToT0T1 false: 
   //   a0 = (a0 * b0) / 255, t0 is destroyed.
@@ -249,8 +297,8 @@ struct BLITJIT_API Generator : public GeneratorBase
   //   t0 = (a0 * b0) / 255, a0 is destroyed.
   //   t1 = (a1 * b1) / 255, a1 is destroyed.
   void _PackedMultiply_4(
-    const XMMRegister& a0, const XMMRegister& b0, const XMMRegister& t0,
-    const XMMRegister& a1, const XMMRegister& b1, const XMMRegister& t1,
+    const XMMRef& a0, const XMMRef& b0, const XMMRef& t0,
+    const XMMRef& a1, const XMMRef& b1, const XMMRef& t1,
     bool moveToT0T1 = false);
 
   // moveToT0 false:
@@ -258,21 +306,28 @@ struct BLITJIT_API Generator : public GeneratorBase
   // moveToT0 true:
   //   t0 = (a0 * b0 + c0 * d0) / 255, a0 and c0 are destroyed
   void _PackedMultiplyAdd(
-    const XMMRegister& a0, const XMMRegister& b0,
-    const XMMRegister& c0, const XMMRegister& d0,
-    const XMMRegister& t0, bool moveToT0 = false);
+    const XMMRef& a0, const XMMRef& b0,
+    const XMMRef& c0, const XMMRef& d0,
+    const XMMRef& t0, bool moveToT0 = false);
 
   void _PackedMultiplyAdd_4(
-    const XMMRegister& a0, const XMMRegister& b0,
-    const XMMRegister& c0, const XMMRegister& d0,
-    const XMMRegister& t0,
-    const XMMRegister& e0, const XMMRegister& f0,
-    const XMMRegister& g0, const XMMRegister& h0,
-    const XMMRegister& t1,
+    const XMMRef& a0, const XMMRef& b0,
+    const XMMRef& c0, const XMMRef& d0,
+    const XMMRef& t0,
+    const XMMRef& e0, const XMMRef& f0,
+    const XMMRef& g0, const XMMRef& h0,
+    const XMMRef& t1,
     bool moveToT0T1);
 
-  void _Premultiply_1(
-    const XMMRef& pix0);
+  void _Premultiply(
+    const XMMRef& pix0, int alphaPos0, bool two);
+
+  void _Premultiply_4(
+    const XMMRef& pix0, int alphaPos0,
+    const XMMRef& pix1, int alphaPos1);
+
+  void _Demultiply(
+    const XMMRef& pix0, Int32Ref& val0, int alphaPos0);
 
   // --------------------------------------------------------------------------
   // [Constants Management]
@@ -306,6 +361,9 @@ struct BLITJIT_API Generator : public GeneratorBase
   UInt32 _features;
   //! @brief Cpu optimizations to use.
   UInt32 _optimization;
+  //! @brief Calling convention of generated function (must be set before 
+  //! calling @c gen...() methods)
+  UInt32 _callingConvention;
   //! @brief Tells generator if it should use data prefetching.
   bool _prefetch;
   //! @brief Tells generator to use non-thermal hint for store (movntq, movntdq, movntdqa, ...)
