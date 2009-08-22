@@ -28,6 +28,7 @@
 #include <AsmJit/CpuInfo.h>
 
 #include "BlitJit.h"
+#include "Constants_p.h"
 #include "Generator_p.h"
 #include "Module_p.h"
 #include "Module_Blit_p.h"
@@ -116,10 +117,31 @@ void Module_Blit_32_SSE2::processPixelsPtr(
   {
     case 1: // Process 1 pixel
     {
-      c->movd(srcpix0.x(), ptr(src->r(), dstDisp));
-      c->movd(dstpix0.x(), ptr(dst->r(), srcDisp));
+      Label* L_LocalLoopExit = c->newLabel();
+
+      // This can improve speed by skipping pixels of zero or full alpha
+      if (op->id() == Operator::CompositeOver)
+      {
+        SysIntRef srcpix0i(c->newVariable(VARIABLE_TYPE_SYSINT, 5));
+        Label* L_1 = c->newLabel();
+
+        c->mov(srcpix0i.x32(), ptr(src->r(), dstDisp));
+        c->cmp(srcpix0i.c32(), imm(0));
+        c->jz(L_LocalLoopExit, HINT_NOT_TAKEN);
+
+        c->movd(srcpix0.x(), srcpix0i.c32());
+        c->movd(dstpix0.x(), ptr(dst->r(), srcDisp));
+      }
+      else
+      {
+        c->movd(srcpix0.x(), ptr(src->r(), dstDisp));
+        c->movd(dstpix0.x(), ptr(dst->r(), srcDisp));
+      }
+
       processPixelsRaw(dstpix0, srcpix0, false);
       c->movd(ptr(dst->r(), dstDisp), dstpix0.r());
+
+      c->bind(L_LocalLoopExit);
       break;
     }
     case 2: // Process 2 pixels
@@ -132,18 +154,19 @@ void Module_Blit_32_SSE2::processPixelsPtr(
     }
     case 4: // Process 4 pixels
     {
-      // Need more variables to successfully parallelize instructions
-      XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
-      XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
-
-      Label* L_LocalLoopExit = c->newLabel();
-
-      g->_LoadMovDQ(srcpix0.x(), ptr(src->r(), srcDisp), srcAligned);
-
-      // This can improve speed by skipping pixels of zero or full alpha
       if (op->id() == Operator::CompositeOver)
       {
-        Label* L_1 = c->newLabel();
+        // Need more variables to successfully parallelize instructions.
+        XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        Int32Ref srcpixi(c->newVariable(VARIABLE_TYPE_INT32));
+
+        Label* L_LocalLoopExit = c->newLabel();
+        Label* L_LocalLoopStore = c->newLabel();
+
+        g->loadDQ(srcpix0, ptr(src->r(), srcDisp), srcAligned);
 
         c->pcmpeqb(dstpix0.r(), dstpix0.r());
         c->pxor(dstpix1.r(), dstpix1.r());
@@ -163,27 +186,55 @@ void Module_Blit_32_SSE2::processPixelsPtr(
           c->jz(L_LocalLoopExit);
 
           c->cmp(k.r32(), 0x8888);
-          c->jnz(L_1);
+          c->jz(L_LocalLoopStore);
         }
 
-        g->_StoreMovDQ(ptr(dst->r(), dstDisp), srcpix0.r(), false, dstAligned);
-        c->jmp(L_LocalLoopExit);
+        g->loadDQ(dstpix0, ptr(dst->r(), dstDisp), dstAligned);
 
-        c->bind(L_1);
+        c->movdqa(srcpix1.r(), srcpix0.r());
+        c->punpcklbw(srcpix0.r(), g->xmmZero().r());
+
+        c->movdqa(dstpix1.r(), dstpix0.r());
+        c->punpckhbw(srcpix1.r(), g->xmmZero().r());
+
+        c->punpcklbw(dstpix0.r(), g->xmmZero().r());
+        c->punpckhbw(dstpix1.r(), g->xmmZero().r());
+
+        g->extractAlpha_2x2W_SSE2(t0, srcpix0, dstAlphaPos, true, t1, srcpix1, dstAlphaPos, true);
+
+        g->mul_2x2W_SSE2(dstpix0, dstpix0, t0, dstpix1, dstpix1, t1);
+        g->add_2x2W_SSE2(srcpix0, srcpix0, dstpix0, srcpix1, srcpix1, dstpix1);
+
+        c->packuswb(srcpix0.r(), srcpix1.r());
+
+        c->bind(L_LocalLoopStore);
+        g->storeDQ(ptr(dst->r(), dstDisp), srcpix0, false, dstAligned);
+        c->bind(L_LocalLoopExit);
       }
+      else
+      {
+        // Need more variables to successfully parallelize instructions.
+        XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
 
-      g->_LoadMovDQ(dstpix0.x(), ptr(dst->r(), dstDisp), dstAligned);
+        Label* L_LocalLoopExit = c->newLabel();
 
-      // Source and destination is in srcpix0 and dstpix0, also we want to
-      // pack destination to dstpix0.
-      processPixelsRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
-        Module_Blit_32_SSE2::Raw4UnpackFromSrc0 |
-        Module_Blit_32_SSE2::Raw4UnpackFromDst0 |
-        Module_Blit_32_SSE2::Raw4PackToDst0);
+        g->loadDQ(srcpix0, ptr(src->r(), srcDisp), srcAligned);
 
-      g->_StoreMovDQ(ptr(dst->r(), dstDisp), dstpix0.r(), false, dstAligned);
 
-      c->bind(L_LocalLoopExit);
+        g->loadDQ(dstpix0, ptr(dst->r(), dstDisp), dstAligned);
+
+        // Source and destination is in srcpix0 and dstpix0, also we want to
+        // pack destination to dstpix0.
+        processPixelsRaw_4(dstpix0, srcpix0, dstpix1, srcpix1,
+          Module_Blit_32_SSE2::Raw4UnpackFromSrc0 |
+          Module_Blit_32_SSE2::Raw4UnpackFromDst0 |
+          Module_Blit_32_SSE2::Raw4PackToDst0);
+
+        g->storeDQ(ptr(dst->r(), dstDisp), dstpix0, false, dstAligned);
+
+        c->bind(L_LocalLoopExit);
+      }
       break;
     }
   }
@@ -218,7 +269,7 @@ void Module_Blit_32_SSE2::processPixelsRaw(
   c->punpcklbw(src0.r(), g->xmmZero().r());
   c->punpcklbw(dst0.r(), g->xmmZero().r());
 
-  g->_CompositePixels(dst0, src0, dstAlphaPos, op, two);
+  g->composite_1x1W_SSE2(dst0, src0, dstAlphaPos, op, two);
 
   c->packuswb(dst0.r(), dst0.r());
 }
@@ -253,7 +304,7 @@ void Module_Blit_32_SSE2::processPixelsRaw_4(
     c->punpcklbw(dst1.r(), g->xmmZero().r());
   }
 
-  g->_CompositePixels_4(
+  g->composite_2x2W_SSE2(
     dst0, src0, dstAlphaPos,
     dst1, src1, dstAlphaPos,
     op);

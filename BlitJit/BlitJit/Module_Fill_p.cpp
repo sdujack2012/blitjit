@@ -76,7 +76,7 @@ void Module_Fill_32_SSE2::beginSwitch()
   {
     c->punpcklbw(srcxmm.r(), g->xmmZero().r());
     //c->punpcklqdq(srcxmm.r(), srcxmm.r());
-    g->_Premultiply(srcxmm, dstAlphaPos, true);
+    g->premultiply_1x1W_SSE2(srcxmm, dstAlphaPos, true);
   }
 
   // Check if alpha is 0xFF (255) 
@@ -90,8 +90,8 @@ void Module_Fill_32_SSE2::beginSwitch()
   {
     c->punpcklbw(srcxmm.r(), g->xmmZero().r());
     //c->punpcklqdq(srcxmm.r(), srcxmm.r());
-    g->_Premultiply(srcxmm, dstAlphaPos, true);
-    g->_ExtractAlpha(alphaxmm, srcxmm, dstAlphaPos, false, true);
+    g->premultiply_1x1W_SSE2(srcxmm, dstAlphaPos, true);
+    g->extractAlpha_1x1W_SSE2(alphaxmm, srcxmm, dstAlphaPos, false, true);
   }
 }
 
@@ -158,7 +158,7 @@ void Module_Fill_32_SSE2::processPixelsPtr(
           c->movq(dst0.x(), ptr(dst->c(), dstDisp));
           c->movq(dst1.x(), ptr(dst->c(), dstDisp + 8));
           processPixelsRaw_4(dst0, dst1, 0);
-          g->_StoreMovDQ(ptr(dst->c(), dstDisp), dst0.r(), false, dstAligned);
+          g->storeDQ(ptr(dst->c(), dstDisp), dst0, false, dstAligned);
 
           offset += 4;
           i -= 4;
@@ -191,7 +191,7 @@ void Module_Fill_32_SSE2::processPixelsPtr(
 
         if (i >= 4)
         {
-          g->_StoreMovDQ(ptr(dst->c(), dstDisp), srcxmm.r(), false, dstAligned);
+          g->storeDQ(ptr(dst->c(), dstDisp), srcxmm, false, dstAligned);
 
           offset -= 4;
           i -= 4;
@@ -238,7 +238,7 @@ void Module_Fill_32_SSE2::processPixelsPtr(
           c->movq(dst0.x(), ptr(dst->c(), dstDisp));
           c->movq(dst1.x(), ptr(dst->c(), dstDisp + 8));
           processPixelsRawMask_4(dst0, dst1, msk0, 0);
-          g->_StoreMovDQ(ptr(dst->c(), dstDisp), dst0.r(), false, dstAligned);
+          g->storeDQ(ptr(dst->c(), dstDisp), dst0, false, dstAligned);
 
           c->bind(end);
 
@@ -313,7 +313,7 @@ void Module_Fill_32_SSE2::processPixelsPtr(
           c->movq(dst0.x(), ptr(dst->c(), dstDisp));
           c->movq(dst1.x(), ptr(dst->c(), dstDisp + 8));
           processPixelsRawMask_4(dst0, dst1, msk0, 0);
-          g->_StoreMovDQ(ptr(dst->c(), dstDisp), dst0.r(), false, dstAligned);
+          g->storeDQ(ptr(dst->c(), dstDisp), dst0, false, dstAligned);
 
           c->bind(end);
 
@@ -388,10 +388,8 @@ void Module_Fill_32_SSE2::processPixelsRawMask(
     c->pshuflw(msk0.r(), msk0.r(), imm(mm_shuffle(0, 0, 0, 0)));
   }
 
-  { XMMRef v0(c->newVariable(VARIABLE_TYPE_XMM));
-    g->_PackedMultiply(msk0, srcxmm, v0, false); }
-
-  g->_CompositePixels(dst0, msk0, dstAlphaPos, op, two);
+  g->mul_1x1W_SSE2(msk0, msk0, srcxmm);
+  g->composite_1x1W_SSE2(dst0, msk0, dstAlphaPos, op, two);
   c->packuswb(dst0.r(), dst0.r());
 }
 
@@ -414,18 +412,8 @@ void Module_Fill_32_SSE2::processPixelsRawMask_4(
   c->pshufhw(msk0.r(), msk0.r(), imm(mm_shuffle(1, 1, 1, 1)));
   c->pshuflw(msk0.r(), msk0.r(), imm(mm_shuffle(0, 0, 0, 0)));
 
-  {
-    XMMRef v0(c->newVariable(VARIABLE_TYPE_XMM));
-    g->_PackedMultiply_4(
-      msk0, srcxmm, v0,
-      msk1, srcxmm, v0);
-  }
-
-  g->_CompositePixels_4(
-    dst0, msk0, dstAlphaPos,
-    dst1, msk1, dstAlphaPos,
-    op);
-
+  g->mul_2x2W_SSE2(msk0, msk0, srcxmm, msk1, msk1, srcxmm);
+  g->composite_2x2W_SSE2(dst0, msk0, dstAlphaPos, dst1, msk1, dstAlphaPos, op);
   c->packuswb(dst0.r(), dst1.r());
 }
 
@@ -435,14 +423,12 @@ void Module_Fill_32_SSE2::processPixelsUnpacked(
 {
   if (op->id() == Operator::CompositeOver)
   {
-    XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
-
-    g->_PackedMultiply(dst0, alphaxmm, t0);
-    c->paddusb(dst0.r(), srcxmm.r());
+    g->mul_1x1W_SSE2(dst0, dst0, alphaxmm);
+    g->add_1x1W_SSE2(dst0, dst0, srcxmm);
   }
   else
   {
-    g->_CompositePixels(dst0, srcxmm, dstAlphaPos, op, two);
+    g->composite_1x1W_SSE2(dst0, srcxmm, dstAlphaPos, op, two);
   }
 }
 
@@ -452,22 +438,12 @@ void Module_Fill_32_SSE2::processPixelsUnpacked_4(
 {
   if (op->id() == Operator::CompositeOver)
   {
-    XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM));
-    XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM));
-
-    g->_PackedMultiply_4(
-      dst0, alphaxmm, t0,
-      dst1, alphaxmm, t1,
-      0);
-    c->paddusb(dst0.r(), srcxmm.r());
-    c->paddusb(dst1.r(), srcxmm.r());
+    g->mul_2x2W_SSE2(dst0, dst0, alphaxmm, dst1, dst1, alphaxmm);
+    g->add_2x2W_SSE2(dst0, dst0, srcxmm, dst1, dst1, srcxmm);
   }
   else
   {
-    g->_CompositePixels_4(
-      dst0, srcxmm, dstAlphaPos,
-      dst1, srcxmm, dstAlphaPos,
-      op);
+    g->composite_2x2W_SSE2(dst0, srcxmm, dstAlphaPos, dst1, srcxmm, dstAlphaPos, op);
   }
 }
 

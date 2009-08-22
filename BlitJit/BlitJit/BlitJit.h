@@ -156,17 +156,33 @@ typedef void (BLITJIT_CALL *DemultiplyFn)(
 typedef void (BLITJIT_CALL *FillSpanFn)(
   void* dst, const void* src, SysUInt len);
 
+//! @brief Fill span function prototype (with closure).
+typedef void (BLITJIT_CALL *FillSpanClosureFn)(
+  void* dst, const void* src, SysUInt len, const void* closure);
+
 //! @brief Blit span function prototype.
 typedef void (BLITJIT_CALL *BlitSpanFn)(
   void* dst, const void* src, SysUInt len);
 
+//! @brief Blit span function prototype (with closure).
+typedef void (BLITJIT_CALL *BlitSpanClosureFn)(
+  void* dst, const void* src, SysUInt len, const void* closure);
+
 //! @brief Fill span with mask function prototype.
-typedef void (BLITJIT_CALL *FillSpanWithMaskFn)(
+typedef void (BLITJIT_CALL *FillSpanMaskFn)(
   void* dst, const void* src, const void* msk, SysUInt len);
 
-//! @brief Blit span with mask function prototype.
-typedef void (BLITJIT_CALL *BlitSpanWithMaskFn)(
+//! @brief Fill span with mask function prototype (with closure).
+typedef void (BLITJIT_CALL *FillSpanMaskClosureFn)(
+  void* dst, const void* src, const void* msk, SysUInt len, const void* closure);
+
+//! @brief Fill span with mask function prototype.
+typedef void (BLITJIT_CALL *BlitSpanMaskFn)(
   void* dst, const void* src, const void* msk, SysUInt len);
+
+//! @brief Fill span with mask function prototype (with closure).
+typedef void (BLITJIT_CALL *BlitSpanMaskClosureFn)(
+  void* dst, const void* src, const void* msk, SysUInt len, const void* closure);
 
 // ============================================================================
 // [BlitJit - Rect Function Prototypes]
@@ -178,23 +194,51 @@ typedef void (BLITJIT_CALL *FillRectFn)(
   SysInt dstStride,
   SysUInt width, SysUInt height);
 
+//! @brief Fill rect function prototype (with closure).
+typedef void (BLITJIT_CALL *FillRectClosureFn)(
+  void* dst, const void* src,
+  SysInt dstStride,
+  SysUInt width, SysUInt height,
+  const void* closure);
+
 //! @brief Blit rect function prototype.
 typedef void (BLITJIT_CALL *BlitRectFn)(
   void* dst, const void* src,
   SysInt dstStride, SysInt srcStride,
   SysUInt width, SysUInt height);
 
+//! @brief Blit rect function prototype (with closure).
+typedef void (BLITJIT_CALL *BlitRectClosureFn)(
+  void* dst, const void* src,
+  SysInt dstStride, SysInt srcStride,
+  SysUInt width, SysUInt height,
+  const void* closure);
+
 //! @brief Fill rect with mask function prototype.
-typedef void (BLITJIT_CALL *FillRectWithMaskFn)(
+typedef void (BLITJIT_CALL *FillRectMaskFn)(
   void* dst, const void* src, const void* msk,
   SysInt dstStride, SysInt mskStride,
   SysUInt width, SysUInt height);
+
+//! @brief Fill rect with mask function prototype (with closure).
+typedef void (BLITJIT_CALL *FillRectMaskClosureFn)(
+  void* dst, const void* src, const void* msk,
+  SysInt dstStride, SysInt mskStride,
+  SysUInt width, SysUInt height,
+  const void* closure);
 
 //! @brief Blit rect with mask function prototype.
 typedef void (BLITJIT_CALL *BlitRectMaskFn)(
   void* dst, const void* src, const void* msk,
   SysInt dstStride, SysInt srcStride, SysInt mskStride,
   SysUInt width, SysUInt height);
+
+//! @brief Blit rect with mask function prototype (with closure).
+typedef void (BLITJIT_CALL *BlitRectMaskClosureFn)(
+  void* dst, const void* src, const void* msk,
+  SysInt dstStride, SysInt srcStride, SysInt mskStride,
+  SysUInt width, SysUInt height,
+  const void* closure);
 
 // ============================================================================
 // [BlitJit - Pixel Format]
@@ -561,7 +605,7 @@ struct BLITJIT_API Api
     const Operator* op);
 
   //! @brief Generate fill span with mask function.
-  static FillSpanWithMaskFn genFillSpanWithMask(
+  static FillSpanMaskFn genFillSpanWithMask(
     const PixelFormat* dstPf,
     const PixelFormat* srcPf,
     const PixelFormat* mskPf,
@@ -574,7 +618,7 @@ struct BLITJIT_API Api
     const Operator* op);
 
   //! @brief Generate fill rect with mask function.
-  static FillRectWithMaskFn genFillRectWithMask(
+  static FillRectMaskFn genFillRectWithMask(
     const PixelFormat* dstPf,
     const PixelFormat* srcPf,
     const PixelFormat* mskPf,

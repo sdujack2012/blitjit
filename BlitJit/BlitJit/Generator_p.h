@@ -149,11 +149,13 @@ struct BLITJIT_API Generator : public GeneratorBase
   void setOptimization(UInt32 optimization);
   void setPrefetch(bool prefetch);
   void setNonThermalHint(bool nonThermalHint);
+  void setClosure(bool closure);
 
-  inline UInt32 features() { return _features; }
-  inline UInt32 optimization() { return _optimization; }
-  inline bool prefetch() { return _prefetch; }
-  inline bool nonThermalHint() { return _nonThermalHint; }
+  inline UInt32 features() const { return _features; }
+  inline UInt32 optimization() const { return _optimization; }
+  inline bool prefetch() const { return _prefetch; }
+  inline bool nonThermalHint() const { return _nonThermalHint; }
+  inline bool closure() const { return _closure; }
 
   // --------------------------------------------------------------------------
   // [Premultiply / Demultiply]
@@ -212,6 +214,16 @@ struct BLITJIT_API Generator : public GeneratorBase
     const Operator* op);
 
   // --------------------------------------------------------------------------
+  // [Experimental]
+  // --------------------------------------------------------------------------
+
+  //! @brief Generate blit span function.
+  void experimentalBlitSpan(
+    const PixelFormat* dstPf,
+    const PixelFormat* srcPf,
+    const Operator* op);
+
+  // --------------------------------------------------------------------------
   // [Loops]
   // --------------------------------------------------------------------------
 
@@ -233,34 +245,41 @@ struct BLITJIT_API Generator : public GeneratorBase
   // [Mov Helpers]
   // --------------------------------------------------------------------------
 
-  void _LoadMov(const Register& dst, const Mem& src);
-  void _LoadMovQ(const MMRegister& dst, const Mem& src);
-  void _LoadMovDQ(const XMMRegister& dst, const Mem& src, bool aligned);
+  void loadD(const SysIntRef& dst, const Mem& src);
+#if defined(ASMJIT_X64)
+  void loadQ(const SysIntRef& dst, const Mem& src);
+#endif // ASMJIT_X64
+  void loadQ(const MMRef& dst, const Mem& src);
+  void loadDQ(const XMMRef& dst, const Mem& src, bool aligned);
 
   //! @brief Emit streaming mov instruction
   //! (AsmJit::Serializer::mov() or AsmJit::Serializer::movnti() is used).
-  void _StoreMov(const Mem& dst, const Register& src, bool nt);
+  void storeD(const Mem& dst, const SysIntRef& src, bool nt);
+
+#if defined(ASMJIT_X64)
+  void storeQ(const Mem& dst, const SysIntRef& src, bool nt);
+#endif // ASMJIT_X64
 
   //! @brief Emit streaming movq instruction
   //! (AsmJit::Serializer::movq() or AsmJit::Serializer::movntq() is used).
-  void _StoreMovQ(const Mem& dst, const MMRegister& src, bool nt);
+  void storeQ(const Mem& dst, const MMRef& src, bool nt);
 
   //! @brief Emit streaming movdqa instruction
   //! (AsmJit::Serializer::movdqa() or AsmJit::Serializer::movntdq() is used).
   //! 
   //! If @a aligned is false, AsmJit::Serializer::movdqu() instruction is used.
-  void _StoreMovDQ(const Mem& dst, const XMMRegister& src, bool nt, bool aligned);
+  void storeDQ(const Mem& dst, const XMMRef& src, bool nt, bool aligned);
 
   // --------------------------------------------------------------------------
   // [Generator Helpers]
   // --------------------------------------------------------------------------
 
-  void Generator::_CompositePixels(
+  void composite_1x1W_SSE2(
     const XMMRef& dst0, const XMMRef& src0, int alphaPos0,
     const Operator* op,
     bool two);
 
-  void Generator::_CompositePixels_4(
+  void composite_2x2W_SSE2(
     const XMMRef& dst0, const XMMRef& src0, int alphaPos0,
     const XMMRef& dst1, const XMMRef& src1, int alphaPos1,
     const Operator* op);
@@ -272,34 +291,44 @@ struct BLITJIT_API Generator : public GeneratorBase
   //! one extra instruction).
   //! @param alphaPos Alpha position.
   //! @param negate Whether to negate extracted alpha values (255 - alpha).
-  void _ExtractAlpha(
+  void extractAlpha_1x1W_SSE2(
     const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0, bool two);
 
-  void _ExtractAlpha_4(
+  void extractAlpha_2x2W_SSE2(
     const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0,
     const XMMRef& dst1, const XMMRef& src1, UInt8 alphaPos1, UInt8 negate1);
 
-  // moveToT0 false:
-  //   a0 = (a0 * b0) / 255, t0 is destroyed.
-  // moveToT0 true:
-  //   t0 = (a0 * b0) / 255, a0 is destroyed.
-  void _PackedMultiply(
-    const XMMRef& a0, const XMMRef& b0, const XMMRef& t0,
-    bool moveToT0 = false);
+  void mov_1x1W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0);
 
+  void mov_2x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0,
+    const XMMRef& dst1, const XMMRef& src1);
+
+  void add_1x1W_SSE2(
+    const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0);
+
+  void add_2x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0,
+    const XMMRef& dst1, const XMMRef& a1, const XMMRef& b1);
+
+  void mul_1x1W_SSE2(
+    const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0);
+
+  void mul_2x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0,
+    const XMMRef& dst1, const XMMRef& a1, const XMMRef& b1);
+
+  void negate_1x1W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0);
+
+  void negate_2x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0,
+    const XMMRef& dst1, const XMMRef& src1);
+
+  // TODO: REMOVE
   void _PackedMultiplyWithAddition(
     const XMMRef& a0, const XMMRef& b0, const XMMRef& t0);
-
-  // moveToT0T1 false: 
-  //   a0 = (a0 * b0) / 255, t0 is destroyed.
-  //   a1 = (a1 * b1) / 255, t1 is destroyed.
-  // moveToT0T1 true: 
-  //   t0 = (a0 * b0) / 255, a0 is destroyed.
-  //   t1 = (a1 * b1) / 255, a1 is destroyed.
-  void _PackedMultiply_4(
-    const XMMRef& a0, const XMMRef& b0, const XMMRef& t0,
-    const XMMRef& a1, const XMMRef& b1, const XMMRef& t1,
-    bool moveToT0T1 = false);
 
   // moveToT0 false:
   //   a0 = (a0 * b0 + c0 * d0) / 255, c0 and t0 are destroyed
@@ -319,14 +348,14 @@ struct BLITJIT_API Generator : public GeneratorBase
     const XMMRef& t1,
     bool moveToT0T1);
 
-  void _Premultiply(
+  void premultiply_1x1W_SSE2(
     const XMMRef& pix0, int alphaPos0, bool two);
 
-  void _Premultiply_4(
+  void premultiply_2x2W_SSE2(
     const XMMRef& pix0, int alphaPos0,
     const XMMRef& pix1, int alphaPos1);
 
-  void _Demultiply(
+  void demultiply_1x1W_SSE2(
     const XMMRef& pix0, Int32Ref& val0, int alphaPos0);
 
   // --------------------------------------------------------------------------
@@ -368,6 +397,8 @@ struct BLITJIT_API Generator : public GeneratorBase
   bool _prefetch;
   //! @brief Tells generator to use non-thermal hint for store (movntq, movntdq, movntdqa, ...)
   bool _nonThermalHint;
+  //! @brief Tells generator to generate functions with closure parameter.
+  bool _closure;
   //! @brief Alignment of main loops.
   SysInt _mainLoopAlignment;
   //! @brief Function body flags.

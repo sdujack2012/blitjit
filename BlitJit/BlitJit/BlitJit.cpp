@@ -133,7 +133,7 @@ FillSpanFn Api::genFillSpan(
   return AsmJit::function_cast<FillSpanFn>(gen.c->make());
 }
 
-FillSpanWithMaskFn Api::genFillSpanWithMask(
+FillSpanMaskFn Api::genFillSpanWithMask(
   const PixelFormat* dstPf,
   const PixelFormat* srcPf,
   const PixelFormat* mskPf,
@@ -143,7 +143,7 @@ FillSpanWithMaskFn Api::genFillSpanWithMask(
   configureCompiler(gen.c);
 
   gen.genFillSpanWithMask(dstPf, srcPf, mskPf, op);
-  return AsmJit::function_cast<FillSpanWithMaskFn>(gen.c->make());
+  return AsmJit::function_cast<FillSpanMaskFn>(gen.c->make());
 }
 
 FillRectFn Api::genFillRect(
@@ -158,7 +158,7 @@ FillRectFn Api::genFillRect(
   return AsmJit::function_cast<FillRectFn>(gen.c->make());
 }
 
-FillRectWithMaskFn Api::genFillRectWithMask(
+FillRectMaskFn Api::genFillRectWithMask(
   const PixelFormat* dstPf,
   const PixelFormat* srcPf,
   const PixelFormat* mskPf,
@@ -168,7 +168,7 @@ FillRectWithMaskFn Api::genFillRectWithMask(
   configureCompiler(gen.c);
 
   gen.genFillRectWithMask(dstPf, srcPf, mskPf, op);
-  return AsmJit::function_cast<FillRectWithMaskFn>(gen.c->make());
+  return AsmJit::function_cast<FillRectMaskFn>(gen.c->make());
 }
 
 BlitSpanFn Api::genBlitSpan(
