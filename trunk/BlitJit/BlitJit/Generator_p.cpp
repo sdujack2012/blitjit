@@ -158,13 +158,12 @@ void PremultiplyModule_32_SSE2::processPixelsPtr(
       c->punpcklbw(dst0.r(), g->xmmZero().r());
       c->punpcklbw(dst1.r(), g->xmmZero().r());
 
-      g->_Premultiply_4(
+      g->premultiply_2x2W_SSE2(
         dst0, dstAlphaPos, 
         dst1, dstAlphaPos);
 
       c->packuswb(dst0.r(), dst0.r());
-
-      g->_StoreMovDQ(ptr(dst->c(), dstDisp), dst0.r(), false, (flags & DstAligned) != 0);
+      g->storeDQ(ptr(dst->c(), dstDisp), dst0, false, (flags & DstAligned) != 0);
 
       offset += 4;
       i -= 4;
@@ -175,7 +174,7 @@ void PremultiplyModule_32_SSE2::processPixelsPtr(
 
       c->movq(dst0.x(), ptr(dst->c(), dstDisp));
       c->punpcklbw(dst0.r(), g->xmmZero().r());
-      g->_Premultiply(dst0, dstAlphaPos, true);
+      g->premultiply_1x1W_SSE2(dst0, dstAlphaPos, true);
       c->packuswb(dst0.r(), dst0.r());
       c->movq(ptr(dst->c(), dstDisp), dst0.r());
 
@@ -188,7 +187,7 @@ void PremultiplyModule_32_SSE2::processPixelsPtr(
 
       c->movd(dst0.x(), ptr(dst->c(), dstDisp));
       c->punpcklbw(dst0.r(), g->xmmZero().r());
-      g->_Premultiply(dst0, dstAlphaPos, false);
+      g->premultiply_1x1W_SSE2(dst0, dstAlphaPos, false);
       c->packuswb(dst0.r(), dst0.r());
       c->movd(ptr(dst->c(), dstDisp), dst0.r());
 
@@ -281,12 +280,12 @@ void DemultiplyModule_32_SSE2::processPixelsPtr(
     c->je(skip);
 
     c->shr(reg0.r(), imm(dstAlphaPos * 8));
-    c->mov(reg1.x(), BLITJIT_GETCONST(g, CxDemultiply[dstAlphaPos]));
+    c->mov(reg1.x(), BLITJIT_GETCONST(g, _Demultiply[dstAlphaPos]));
     c->movd(dst0.x(), ptr(dst->c(), dstDisp));
     c->movq(a0.x(), ptr(reg1.r(), reg0.r(), TIMES_8));
     c->punpcklbw(dst0.x(), g->xmmZero().c());
 
-    g->_PackedMultiply(dst0, a0, a0);
+    g->mul_1x1W_SSE2(dst0, dst0, a0);
     c->packuswb(dst0.r(), dst0.r());
     c->movd(ptr(dst->c(), dstDisp), dst0.r());
 
@@ -425,13 +424,16 @@ Generator::Generator(Compiler* _c) : GeneratorBase(_c)
 # endif
 #endif
 
-  // Turn ON prefetching by default
+  // Turn ON prefetching by default.
   _prefetch = true;
-  _prefetch = false;
 
-  // Turn OFF non-thermal hints by default
+  // Turn OFF non-thermal hints by default.
   _nonThermalHint = false;
 
+  // Turn OFF generating closures by default.
+  _closure = false;
+
+  // Set main loop alignment to 16 by default.
   _mainLoopAlignment = 16;
 
   // Body flags are clean by default
@@ -467,6 +469,11 @@ void Generator::setNonThermalHint(bool nonThermalHint)
   _nonThermalHint = nonThermalHint;
 }
 
+void Generator::setClosure(bool closure)
+{
+  _closure = closure;
+}
+
 // ============================================================================
 // [BlitJit::Generator - Premultiply / Demultiply]
 // ============================================================================
@@ -475,7 +482,16 @@ void Generator::genPremultiply(const PixelFormat* dstPf)
 {
   c->comment("BlitJit::Generator::genPremultiply() - %s", dstPf->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction2<void*, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction2<void*, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction3<void*, SysUInt, void*>());
+    f->argument(2)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -498,7 +514,16 @@ void Generator::genDemultiply(const PixelFormat* dstPf)
 {
   c->comment("BlitJit::Generator::genDemultiply() - %s", dstPf->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction2<void*, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction2<void*, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction3<void*, SysUInt, void*>());
+    f->argument(2)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -529,7 +554,16 @@ void Generator::genFillSpan(
   c->comment("BlitJit::Generator::genFillSpan() - %s <- %s : %s",
     dstPf->name(), srcPf->name(), op->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction3<void*, const void*, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction3<void*, const void*, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction4<void*, const void*, SysUInt, void*>());
+    f->argument(3)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -581,7 +615,16 @@ void Generator::genFillSpanWithMask(
   c->comment("BlitJit::Generator::genFillSpan() - %s <- %s * %s : %s",
     dstPf->name(), srcPf->name(), pfMask->name(), op->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction4<void*, const void*, const void*, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction4<void*, const void*, const void*, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction5<void*, const void*, const void*, SysUInt, void*>());
+    f->argument(4)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -634,7 +677,16 @@ void Generator::genFillRect(
   c->comment("BlitJit::Generator::genFillRect() - %s <- %s : %s",
     dstPf->name(), srcPf->name(), op->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction5<void*, const void*, SysInt, SysUInt, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction5<void*, const void*, SysInt, SysUInt, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction6<void*, const void*, SysInt, SysUInt, SysUInt, void*>());
+    f->argument(5)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -722,7 +774,16 @@ void Generator::genBlitSpan(
   c->comment("BlitJit::Generator::genBlitSpan() - %s <- %s : %s",
     dstPf->name(), srcPf->name(), op->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction3<void*, void*, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction3<void*, void*, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction4<void*, void*, SysUInt, void*>());
+    f->argument(3)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -772,7 +833,16 @@ void Generator::genBlitRect(
   c->comment("BlitJit::Generator::genBlitRect() - %s <- %s : %s",
     dstPf->name(), srcPf->name(), op->name());
 
-  f = c->newFunction(_callingConvention, BuildFunction6<void*, void*, SysInt, SysInt, SysUInt, SysUInt>());
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction6<void*, void*, SysInt, SysInt, SysUInt, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction7<void*, void*, SysInt, SysInt, SysUInt, SysUInt, void*>());
+    f->argument(6)->unuse();
+  }
+
   f->setNaked(true);
   f->setAllocableEbp(true);
 
@@ -827,6 +897,69 @@ void Generator::genBlitRect(
       c->add(src.r(), srcStride);
       c->sub(height, imm(1));
       c->jnz(L_Loop);
+    }
+
+    module->endSwitch();
+    module->free();
+  }
+
+  c->endFunction();
+
+  // Cleanup
+  delete module;
+}
+
+// ============================================================================
+// [BlitJit::Generator - Experimental]
+// ============================================================================
+
+void Generator::experimentalBlitSpan(
+  const PixelFormat* dstPf,
+  const PixelFormat* srcPf,
+  const Operator* op)
+{
+  c->comment("BlitJit::Generator::experimentalBlitSpan() - %s <- %s : %s",
+    dstPf->name(), srcPf->name(), op->name());
+
+  if (!closure())
+  {
+    f = c->newFunction(_callingConvention, BuildFunction3<void*, void*, SysUInt>());
+  }
+  else
+  {
+    f = c->newFunction(_callingConvention, BuildFunction4<void*, void*, SysUInt, void*>());
+    f->argument(3)->unuse();
+  }
+
+  f->setNaked(true);
+  f->setAllocableEbp(true);
+
+  // Compositing module
+  Module_Blit* module = createModule_Blit(this, srcPf, dstPf, NULL, op);
+
+  if (!module->isNop())
+  {
+    // Destination and source
+    PtrRef dst(c->argument(0));
+    PtrRef src(c->argument(1));
+    SysIntRef cnt(c->argument(2));
+
+    cnt.alloc();
+    dst.alloc();
+    src.alloc();
+
+    // Loop properties
+    Loop loop;
+    loop.finalizePointers = false;
+
+    module->init();
+    module->beginSwitch();
+
+    for (UInt32 kind = 0; kind < module->numKinds(); kind++)
+    {
+      module->beginKind(kind);
+      _GenLoop(&dst, &src, NULL, &cnt, module, kind, loop);
+      module->endKind(kind);
     }
 
     module->endSwitch();
@@ -1184,66 +1317,88 @@ void Generator::_GenLoop(
 // [BlitJit::Generator - Mov Helpers]
 // ============================================================================
 
-void Generator::_LoadMov(const Register& dst, const Mem& src)
+void Generator::loadD(const SysIntRef& dst, const Mem& src)
 {
-  c->mov(dst, src);
+  c->mov(dst.x32(), src);
 }
 
-void Generator::_LoadMovQ(const MMRegister& dst, const Mem& src)
+#if defined(ASMJIT_X64)
+void Generator::loadQ(const SysIntRef& dst, const Mem& src)
 {
-  c->movq(dst, src);
+  c->mov(dst.x64(), src);
+}
+#endif // ASMJIT_X64
+
+void Generator::loadQ(const MMRef& dst, const Mem& src)
+{
+  c->movq(dst.x(), src);
 }
 
-void Generator::_LoadMovDQ(const XMMRegister& dst, const Mem& src, bool aligned)
+void Generator::loadDQ(const XMMRef& dst, const Mem& src, bool aligned)
 {
   if (aligned)
-    c->movdqa(dst, src);
+    c->movdqa(dst.x(), src);
   else
-    c->movdqu(dst, src);
+    c->movdqu(dst.x(), src);
 }
 
-void Generator::_StoreMov(const Mem& dst, const Register& src, bool nt)
+void Generator::storeD(const Mem& dst, const SysIntRef& src, bool nt)
 {
   if (nt && (_features & AsmJit::CpuInfo::Feature_SSE2) != 0)
   {
-    c->movnti(dst, src);
+    c->movnti(dst, src.c32());
     f->setSfence(true);
   }
   else
   {
-    c->mov(dst, src);
+    c->mov(dst, src.c32());
   }
 }
 
-void Generator::_StoreMovQ(const Mem& dst, const MMRegister& src, bool nt)
+#if defined(ASMJIT_X64)
+void Generator::storeQ(const Mem& dst, const SysIntRef& src, bool nt)
+{
+  if (nt && (_features & AsmJit::CpuInfo::Feature_SSE2) != 0)
+  {
+    c->movnti(dst, src.c64());
+    f->setSfence(true);
+  }
+  else
+  {
+    c->mov(dst, src.c64());
+  }
+}
+#endif // ASMJIT_X64
+
+void Generator::storeQ(const Mem& dst, const MMRef& src, bool nt)
 {
   if (nt && (_features & (
       AsmJit::CpuInfo::Feature_SSE |
       AsmJit::CpuInfo::Feature_3dNow)) != 0)
   {
-    c->movntq(dst, src);
+    c->movntq(dst, src.c());
     f->setSfence(true);
   }
   else
   {
-    c->movq(dst, src);
+    c->movq(dst, src.c());
   }
 }
 
-void Generator::_StoreMovDQ(const Mem& dst, const XMMRegister& src, bool nt, bool aligned)
+void Generator::storeDQ(const Mem& dst, const XMMRef& src, bool nt, bool aligned)
 {
   if (nt && aligned)
   {
-    c->movntdq(dst, src);
+    c->movntdq(dst, src.c());
     f->setSfence(true);
   }
   else if (aligned)
   {
-    c->movdqa(dst, src);
+    c->movdqa(dst, src.c());
   }
   else
   {
-    c->movdqu(dst, src);
+    c->movdqu(dst, src.c());
   }
 }
 
@@ -1262,7 +1417,7 @@ void Generator::usingConstants()
   // 64-bit mode: Allocate register and set custom alloc/spill functions.
   // TODO:
   _rConstantsAddress.use(c->newVariable(VARIABLE_TYPE_PTR, 0));
-  c->mov(_rConstantsAddress.x(), imm((SysInt)Api::constants));
+  c->mov(_rConstantsAddress.x(), imm((SysInt)Constants::instance));
 #endif
 
   // Initialized, this will prevent us to do initialization more times
@@ -1377,7 +1532,7 @@ void Generator::usingXMM0080()
   _xmm0080.setAllocFn(customAlloc_const);
   _xmm0080.setSpillFn(customSpill_none);
   _xmm0080.setDataPtr((void*)this);
-  _xmm0080.setDataInt(BLITJIT_DISPCONST(Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+  _xmm0080.setDataInt(BLITJIT_DISPCONST(_00FF00FF00FF00FF00FF00FF00FF00FF));
   _xmm0080.alloc();
 
   // Initialized, this will prevent us to do initialization more times
@@ -1388,7 +1543,7 @@ void Generator::usingXMM0080()
 // [BlitJit::Generator - Generator Helpers]
 // ==========================================================================
 
-void Generator::_CompositePixels(
+void Generator::composite_1x1W_SSE2(
   const XMMRef& dst0, const XMMRef& src0, int alphaPos0,
   const Operator* op,
   bool two)
@@ -1420,9 +1575,9 @@ void Generator::_CompositePixels(
     //      = Sa + Da - Sa.Da
     case Operator::CompositeOver:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, true, two);
-      _PackedMultiply(dst0, t0, t0);
-      c->paddusb(dst0.r(), src0.r());
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, true, two);
+      mul_1x1W_SSE2(dst0, dst0, t0);
+      add_1x1W_SSE2(dst0, dst0, src0);
       break;
     }
 
@@ -1433,8 +1588,8 @@ void Generator::_CompositePixels(
     {
       XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
-      _ExtractAlpha(t0, dst0, alphaPos0, true, two);
-      _PackedMultiply(t0, src0, t2);
+      extractAlpha_1x1W_SSE2(t0, dst0, alphaPos0, true, two);
+      mul_1x1W_SSE2(t0, t0, src0);
       c->paddusb(dst0.r(), t0.r());
       break;
     }
@@ -1443,8 +1598,8 @@ void Generator::_CompositePixels(
     // Da'  = Sa.Da 
     case Operator::CompositeIn:
     {
-      _ExtractAlpha(t0, dst0, alphaPos0, false, two);
-      _PackedMultiply(t0, src0, dst0, true);
+      extractAlpha_1x1W_SSE2(t0, dst0, alphaPos0, false, two);
+      mul_1x1W_SSE2(dst0, t0, src0);
       break;
     }
 
@@ -1452,8 +1607,8 @@ void Generator::_CompositePixels(
     // Da'  = Da.Sa
     case Operator::CompositeInReverse:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, false, two);
-      _PackedMultiply(dst0, t0, t0);
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, false, two);
+      mul_1x1W_SSE2(dst0, t0, t0);
       break;
     }
 
@@ -1461,8 +1616,8 @@ void Generator::_CompositePixels(
     // Da'  = Sa.(1 - Da) 
     case Operator::CompositeOut:
     {
-      _ExtractAlpha(t0, dst0, alphaPos0, true, two);
-      _PackedMultiply(t0, src0, dst0, true);
+      extractAlpha_1x1W_SSE2(t0, dst0, alphaPos0, true, two);
+      mul_1x1W_SSE2(dst0, t0, src0);
       break;
     }
 
@@ -1470,8 +1625,8 @@ void Generator::_CompositePixels(
     // Da'  = Da.(1 - Sa) 
     case Operator::CompositeOutReverse:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, true, two);
-      _PackedMultiply(dst0, t0, t0);
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, true, two);
+      mul_1x1W_SSE2(dst0, dst0, t0);
       break;
     }
 
@@ -1481,8 +1636,8 @@ void Generator::_CompositePixels(
     //      = Da
     case Operator::CompositeAtop:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, true, two);
-      _ExtractAlpha(t1, dst0, alphaPos0, false, two);
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, true, two);
+      extractAlpha_1x1W_SSE2(t1, dst0, alphaPos0, false, two);
       _PackedMultiplyAdd(t1, src0, dst0, t0, dst0, true);
       break;
     }
@@ -1493,8 +1648,8 @@ void Generator::_CompositePixels(
     //      = Sa 
     case Operator::CompositeAtopReverse:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, false, two);
-      _ExtractAlpha(t1, dst0, alphaPos0, true, two);
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, false, two);
+      extractAlpha_1x1W_SSE2(t1, dst0, alphaPos0, true, two);
       _PackedMultiplyAdd(t1, src0, dst0, t0, dst0, true);
       break;
     }
@@ -1504,12 +1659,9 @@ void Generator::_CompositePixels(
     //      = Sa + Da - 2.Sa.Da 
     case Operator::CompositeXor:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, true, two);
-      _ExtractAlpha(t1, dst0, alphaPos0, true, two);
-      _PackedMultiplyAdd(
-        t1, src0,
-        dst0, t0,
-        dst0, true);
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, true, two);
+      extractAlpha_1x1W_SSE2(t1, dst0, alphaPos0, true, two);
+      _PackedMultiplyAdd(t1, src0, dst0, t0, dst0, true);
       break;
     }
 
@@ -1534,43 +1686,45 @@ void Generator::_CompositePixels(
     // Da'  = 1 - (1 - Sa).(1 - Da)
     case Operator::CompositeSubtract:
     {
-      _ExtractAlpha(t0, src0, alphaPos0, true, two);
-      _ExtractAlpha(t1, dst0, alphaPos0, true, two);
-      _PackedMultiply(t0, t1, t1);
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, true, two);
+      extractAlpha_1x1W_SSE2(t1, dst0, alphaPos0, true, two);
+      mul_1x1W_SSE2(t0, t0, t1);
       c->psubusb(dst0.r(), src0.r());
-      c->por(dst0.r(), BLITJIT_GETCONST(this, Cx00FF00000000000000FF000000000000));
-      c->pand(t0.r(), BLITJIT_GETCONST(this, Cx00FF00000000000000FF000000000000));
+      c->por(dst0.r(), BLITJIT_GETCONST(this, _00FF00000000000000FF000000000000));
+      c->pand(t0.r(), BLITJIT_GETCONST(this, _00FF00000000000000FF000000000000));
       c->psubusb(dst0.r(), t0.r());
       break;
     }
 
     // Dca' = Sca.Dca + Sca.(1 - Da) + Dca.(1 - Sa)
+    //      = Sca.(Dca + 1 - Da) + Dca.(1 - Sa)
+    //      = Dca.(Sca + 1 - Sa) + Sca.(1 - Da)
     // Da'  = Sa.Da + Sa.(1 - Da) + Da.(1 - Sa)
-    //      = Sa + Da - Sa.Da 
+    //      = Sa.(Da + 1 - Da) + Da.(1 - Sa)
+    //      = Da.(Sa + 1 - Sa) + Sa.(1 - Da)
+    //      = Sa + Da - Sa.Da
     case Operator::CompositeMultiply:
     {
-      XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
-
-      c->movdqa(t2.r(), dst0.r());
-      _PackedMultiply(t2, dst0, t0);
-
-      _ExtractAlpha(t0, src0, alphaPos0, true, two); // t0 == 1-alpha from src0
-      _ExtractAlpha(t1, dst0, alphaPos0, true, two); // t1 == 1-alpha from dst0
-
-      _PackedMultiplyAdd(dst0, t0, t1, src0, t0);
-      c->paddusw(dst0.r(), t2.r());
+      extractAlpha_1x1W_SSE2(t0, src0, alphaPos0, true, two); // t0 == 1-alpha from src0
+      extractAlpha_1x1W_SSE2(t1, dst0, alphaPos0, true, two); // t1 == 1-alpha from dst0
+      add_1x1W_SSE2(t0, t0, src0);
+      mul_2x2W_SSE2(dst0, dst0, t0, t1, t1, src0);
+      add_1x1W_SSE2(dst0, dst0, t1);
       break;
     }
 
     // Dca' = (Sca.Da + Dca.Sa - Sca.Dca) + Sca.(1 - Da) + Dca.(1 - Sa)
     //      = Sca + Dca - Sca.Dca
-    // Da'  = Sa + Da - Sa.Da 
+    //      = Dca + Sca.(1 - Dca)
+    //      = Sca + Dca.(1 - Sca)
+    // Da'  = Sa + Da - Sa.Da
+    //      = Da + Sa.(1 - Da) = Sa + Da.(1 - Sa)
     case Operator::CompositeScreen:
     {
-      c->movdqa(t0.r(), dst0.r());
-      c->paddusw(dst0.r(), src0.r());
-      _PackedMultiply(t0, src0, t1);
-      c->psubusw(dst0.r(), t0.r());
+      mov_1x1W_SSE2(t0, src0);
+      negate_1x1W_SSE2(t0, t0);
+      mul_1x1W_SSE2(dst0, dst0, t0);
+      add_1x1W_SSE2(dst0, dst0, src0);
       break;
     }
 
@@ -1590,24 +1744,16 @@ void Generator::_CompositePixels(
       XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
       XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, false,
-        t1, dst0, alphaPos0, false);
-      _PackedMultiply_4(
-        t0, dst0, t2,
-        t1, src0, t3, true);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, false, t1, dst0, alphaPos0, false);
+      mul_2x2W_SSE2(t2, t0, dst0, t3, t1, src0);
 
       if (op->id() == Operator::CompositeDarken)
         c->pminsw(t3.r(), t2.r());
       else
         c->pmaxsw(t3.r(), t2.r());
 
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, true,
-        t1, dst0, alphaPos0, true);
-      _PackedMultiplyAdd(
-        dst0, t0,
-        t1, src0, t2);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, true, t1, dst0, alphaPos0, true);
+      _PackedMultiplyAdd(dst0, t0, t1, src0, t2);
       c->paddusw(dst0.r(), t3.r());
       break;
     }
@@ -1620,16 +1766,12 @@ void Generator::_CompositePixels(
       XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
       XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, false,
-        t1, dst0, alphaPos0, false);
-      _PackedMultiply_4(
-        t0, dst0, t2,
-        t1, src0, t3);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, false, t1, dst0, alphaPos0, false);
+      mul_2x2W_SSE2(t2, t0, dst0, t3, t1, src0);
       c->pminsw(t0.r(), t1.r());
       c->paddusw(dst0.r(), src0.r());
       c->psubusw(dst0.r(), t0.r());
-      c->pand(t0.r(), BLITJIT_GETCONST(this, Cx000000FF00FF00FF000000FF00FF00FF));
+      c->pand(t0.r(), BLITJIT_GETCONST(this, _000000FF00FF00FF000000FF00FF00FF));
       c->psubusw(dst0.r(), t0.r());
       break;
     }
@@ -1645,10 +1787,10 @@ void Generator::_CompositePixels(
     case Operator::CompositeExclusion:
     {
       c->movdqa(t0.r(), src0.r());
-      _PackedMultiply(t0, dst0, t1);
+      mul_1x1W_SSE2(t0, t0, dst0);
       c->paddusw(dst0.r(), src0.r());
       c->psubusw(dst0.r(), t0.r());
-      c->pand(t0.r(), BLITJIT_GETCONST(this, Cx000000FF00FF00FF000000FF00FF00FF));
+      c->pand(t0.r(), BLITJIT_GETCONST(this, _000000FF00FF00FF000000FF00FF00FF));
       c->psubusw(dst0.r(), t0.r());
       break;
     }
@@ -1661,22 +1803,22 @@ void Generator::_CompositePixels(
       XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
       XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
-      _ExtractAlpha_4(
+      extractAlpha_2x2W_SSE2(
         t0, src0, alphaPos0, false,  // Sa
         t2, dst0, alphaPos0, false); // Da
 
       c->movdqa(t1.r(), t0.r());
       c->psubusb(t2.r(), dst0.r());
-      c->pxor(t1.r(), BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+      c->pxor(t1.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
 
       // t1 = 1 - Sa
       // t2 = Da - Dca
 
-      _PackedMultiply_4(
-        t2, t0, t3,     // t2   = Sa.(Da - Dca)
-        dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
+      mul_2x2W_SSE2(
+        t2, t2, t0,       // t2   = Sa.(Da - Dca)
+        dst0, dst0, t1);  // dst0 = Dca.(1 - Sa)
 
-      c->pand(t0.r(), BLITJIT_GETCONST(this, Cx00FF00000000000000FF000000000000));
+      c->pand(t0.r(), BLITJIT_GETCONST(this, _00FF00000000000000FF000000000000));
       c->paddusb(dst0.r(), t2.r());
       c->paddusb(dst0.r(), t0.r());
       break;
@@ -1690,22 +1832,22 @@ void Generator::_CompositePixels(
       XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 0));
       XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM, 0));
 
-      _ExtractAlpha_4(
+      extractAlpha_2x2W_SSE2(
         t0, src0, alphaPos0, false,  // Sa
         t2, dst0, alphaPos0, false); // Da
 
       c->movdqa(t1.r(), t0.r());
       c->psubw(t2.r(), dst0.r());
-      c->pxor(t1.r(), BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+      c->pxor(t1.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
 
       // t1 = 1 - Sa
       // t2 = Da - Dca
 
-      _PackedMultiply_4(
-        t2, src0, t3,   // t2   = Sca.(Da - Dca)
-        dst0, t1, t1);  // dst0 = Dca.(1 - Sa)
+      mul_2x2W_SSE2(
+        t2, t2, src0,     // t2   = Sca.(Da - Dca)
+        dst0, dst0, t1);  // dst0 = Dca.(1 - Sa)
 
-      c->pand(t0.r(), BLITJIT_GETCONST(this, Cx00FF00000000000000FF000000000000));
+      c->pand(t0.r(), BLITJIT_GETCONST(this, _00FF00000000000000FF000000000000));
       c->paddusb(dst0.r(), t2.r());
       c->paddusb(dst0.r(), t0.r());
       break;
@@ -1713,7 +1855,7 @@ void Generator::_CompositePixels(
   }
 }
 
-void Generator::_CompositePixels_4(
+void Generator::composite_2x2W_SSE2(
   const XMMRef& dst0, const XMMRef& src0, int alphaPos0,
   const XMMRef& dst1, const XMMRef& src1, int alphaPos1,
   const Operator* op)
@@ -1725,98 +1867,54 @@ void Generator::_CompositePixels_4(
   {
     case Operator::CompositeSrc:
       // copy operation (optimized in frontends and also by Generator itself)
-      c->movdqa(dst0.r(), src0.r());
-      c->movdqa(dst1.r(), src1.r());
+      mov_2x2W_SSE2(dst0, src0, dst1, src1);
       break;
     case Operator::CompositeDest:
       // no operation (optimized in frontends and also by Generator itself)
       break;
     case Operator::CompositeOver:
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, true,
-        t1, src1, alphaPos1, true);
-      _PackedMultiply_4(
-        dst0, t0, t0,
-        dst1, t1, t1);
-      c->paddusb(dst0.r(), src0.r());
-      c->paddusb(dst1.r(), src1.r());
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, true, t1, src1, alphaPos1, true);
+      mul_2x2W_SSE2(dst0, dst0, t0, dst1, dst1, t1);
+      add_2x2W_SSE2(dst0, dst0, src0, dst1, dst1, src1);
       break;
     case Operator::CompositeOverReverse:
-      // FIXME: Src modified
-      _ExtractAlpha_4(
-        t0, dst0, alphaPos0, true,
-        t1, dst1, alphaPos1, true);
-      _PackedMultiply_4(
-        src0, t0, t0,
-        src1, t1, t1);
-      c->paddusb(dst0.r(), src0.r());
-      c->paddusb(dst1.r(), src1.r());
+      extractAlpha_2x2W_SSE2(t0, dst0, alphaPos0, true, t1, dst1, alphaPos1, true);
+      mul_2x2W_SSE2(t0, t0, src0, t1, t1, src1);
+      add_2x2W_SSE2(dst0, dst0, t0, dst1, dst1, t1);
       break;
     case Operator::CompositeIn:
-      _ExtractAlpha_4(
-        t0, dst0, alphaPos0, false,
-        t1, dst1, alphaPos1, false);
-      _PackedMultiply_4(
-        t0, src0, dst0,
-        t1, src1, dst1,
-        true);
+      extractAlpha_2x2W_SSE2(t0, dst0, alphaPos0, false, t1, dst1, alphaPos1, false);
+      mul_2x2W_SSE2(dst0, dst0, src0, dst1, dst1, t1);
       break;
     case Operator::CompositeInReverse:
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, false,
-        t1, src1, alphaPos1, false);
-      _PackedMultiply_4(
-        dst0, t0, t0,
-        dst1, t1, t1);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, false, t1, src1, alphaPos1, false);
+      mul_2x2W_SSE2(dst0, dst0, t0, dst1, dst1, t1);
       break;
     case Operator::CompositeOut:
-      _ExtractAlpha_4(
-        t0, dst0, alphaPos0, true,
-        t1, dst1, alphaPos1, true);
-      _PackedMultiply_4(
-        t0, src0, dst0,
-        t1, src1, dst1,
-        true);
+      extractAlpha_2x2W_SSE2(dst0, dst0, alphaPos0, true, dst1, dst1, alphaPos1, true);
+      mul_2x2W_SSE2(dst0, dst0, src0, dst1, dst1, src1);
       break;
     case Operator::CompositeOutReverse:
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, true,
-        t1, src1, alphaPos1, true);
-      _PackedMultiply_4(
-        dst0, t0, t0,
-        dst1, t1, t1);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, true, t1, src1, alphaPos1, true);
+      mul_2x2W_SSE2(dst0, dst0, t0, dst1, dst1, t1);
       break;
     case Operator::CompositeAtop:
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, true,
-        t1, dst0, alphaPos1, false);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, true, t1, dst0, alphaPos1, false);
       _PackedMultiplyAdd(t1, src0, dst0, t0, dst0, true);
-
-      _ExtractAlpha_4(
-        t0, src1, alphaPos0, true,
-        t1, dst1, alphaPos1, false);
+      extractAlpha_2x2W_SSE2(t0, src1, alphaPos0, true, t1, dst1, alphaPos1, false);
       _PackedMultiplyAdd(t1, src1, dst1, t0, dst1, true);
       break;
     case Operator::CompositeAtopReverse:
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, false,
-        t1, dst0, alphaPos1, true);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, false, t1, dst0, alphaPos1, true);
       _PackedMultiplyAdd(t1, src0, dst0, t0, dst0, true);
-
-      _ExtractAlpha_4(
-        t0, src1, alphaPos0, false,
-        t1, dst1, alphaPos1, true);
+      extractAlpha_2x2W_SSE2(t0, src1, alphaPos0, false, t1, dst1, alphaPos1, true);
       _PackedMultiplyAdd(t1, src1, dst1, t0, dst1, true);
       break;
     case Operator::CompositeXor:
-      _ExtractAlpha_4(
-        t0, src0, alphaPos0, true,
-        t1, dst0, alphaPos1, true);
+      extractAlpha_2x2W_SSE2(t0, src0, alphaPos0, true, t1, dst0, alphaPos1, true);
       _PackedMultiplyAdd(t1, src0, dst0, t0, dst0, true);
 
-      _ExtractAlpha_4(
-        t0, src1, alphaPos0, true,
-        t1, dst1, alphaPos1, true);
+      extractAlpha_2x2W_SSE2(t0, src1, alphaPos0, true, t1, dst1, alphaPos1, true);
       _PackedMultiplyAdd(t1, src1, dst1, t0, dst1, true);
       break;
     case Operator::CompositeClear:
@@ -1844,48 +1942,160 @@ void Generator::_CompositePixels_4(
   }
 }
 
-void Generator::_ExtractAlpha(
+void Generator::extractAlpha_1x1W_SSE2(
   const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0, bool two)
 {
   c->pshuflw(dst0.r(), src0.r(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
   if (two) c->pshufhw(dst0.r(), dst0.r(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
 
-  if (negate0) c->pxor(dst0.r(), BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+  if (negate0) c->pxor(dst0.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
 }
 
-void Generator::_ExtractAlpha_4(
+void Generator::extractAlpha_2x2W_SSE2(
   const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0,
   const XMMRef& dst1, const XMMRef& src1, UInt8 alphaPos1, UInt8 negate1)
 {
-  c->pshuflw(dst0.r(), src0.r(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-  c->pshuflw(dst1.r(), src1.r(), mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
+  c->pshuflw(dst0.x(), src0.c(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
+  c->pshuflw(dst1.x(), src1.c(), mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
 
   c->pshufhw(dst0.r(), dst0.r(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
   c->pshufhw(dst1.r(), dst1.r(), mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
 
-  if (negate0) c->pxor(dst0.r(), BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
-  if (negate1) c->pxor(dst1.r(), BLITJIT_GETCONST(this, Cx00FF00FF00FF00FF00FF00FF00FF00FF));
+  if (negate0) c->pxor(dst0.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
+  if (negate1) c->pxor(dst1.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
 }
 
-void Generator::_PackedMultiply(
-  const XMMRef& a0, const XMMRef& b0, const XMMRef& t0,
-  bool moveToT0)
+void Generator::mov_1x1W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0)
 {
-  c->pmullw(a0.r(), b0.r());            // a0 *= b0
-  c->paddusw(a0.r(), xmm0080().c());    // a0 += 80
-  c->movdqa(t0.r(), a0.r());            // t0  = a0
-  c->psrlw(a0.r(), 8);                  // a0 /= 256
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+}
 
-  if (!moveToT0)
+void Generator::mov_2x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0,
+  const XMMRef& dst1, const XMMRef& src1)
+{
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+  if (dst1.v() != src1.v()) c->movdqa(dst1.x(), src1.c());
+}
+
+void Generator::add_1x1W_SSE2(
+  const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0)
+{
+  if (dst0.v() == a0.v())
   {
-    c->paddusw(a0.r(), t0.r());         // a0 += t0
-    c->psrlw(a0.r(), 8);                // a0 /= 256
+    c->paddusb(a0.r(), b0.c());
+  }
+  else if (dst0.v() == b0.v())
+  {
+    c->paddusb(b0.r(), a0.c());
   }
   else
   {
-    c->paddusw(t0.r(), a0.r());         // t0 += a0
-    c->psrlw(t0.r(), 8);                // t0 /= 256
+    c->movdqa(dst0.x(), a0.c());
+    c->paddusb(dst0.r(), b0.c());
   }
+}
+
+void Generator::add_2x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0,
+  const XMMRef& dst1, const XMMRef& a1, const XMMRef& b1)
+{
+  if (dst0.v() == a0.v() && dst1.v() == a1.v())
+  {
+    c->paddusb(a0.r(), b0.c());
+    c->paddusb(a1.r(), b1.c());
+  }
+  else if (dst0.v() == b0.v() && dst1.v() == b1.v())
+  {
+    c->paddusb(b0.r(), a0.c());
+    c->paddusb(b1.r(), a1.c());
+  }
+  else
+  {
+    c->movdqa(dst0.x(), a0.c());
+    c->movdqa(dst1.x(), a1.c());
+    c->paddusb(dst0.r(), b0.c());
+    c->paddusb(dst1.r(), b1.c());
+  }
+}
+
+void Generator::mul_1x1W_SSE2(
+  const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0)
+{
+  if (dst0.v() == a0.v())
+  {
+    c->pmullw(a0.r(), b0.c());
+    c->paddusw(a0.r(), xmm0080().c());
+    c->pmulhuw(a0.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+  }
+  else if (dst0.v() == b0.v())
+  {
+    c->pmullw(b0.r(), a0.c());
+    c->paddusw(b0.r(), xmm0080().c());
+    c->pmulhuw(b0.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+  }
+  else
+  {
+    c->movdqa(dst0.x(), a0.c());
+    c->pmullw(dst0.r(), b0.r());
+    c->paddusw(dst0.r(), xmm0080().c());
+    c->pmulhuw(dst0.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+  }
+}
+
+void Generator::mul_2x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& a0, const XMMRef& b0,
+  const XMMRef& dst1, const XMMRef& a1, const XMMRef& b1)
+{
+  if (dst0.v() == a0.v() && dst1.v() == a1.v())
+  {
+    c->pmullw(a0.r(), b0.c());
+    c->pmullw(a1.r(), b1.c());
+    c->paddusw(a0.r(), xmm0080().c());
+    c->paddusw(a1.r(), xmm0080().c());
+    c->pmulhuw(a0.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+    c->pmulhuw(a1.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+  }
+  else if (dst0.v() == b0.v() && dst1.v() == b1.v())
+  {
+    c->pmullw(b0.r(), a0.c());
+    c->pmullw(b1.r(), a1.c());
+    c->paddusw(b0.r(), xmm0080().c());
+    c->paddusw(b1.r(), xmm0080().c());
+    c->pmulhuw(b0.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+    c->pmulhuw(b1.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+  }
+  else
+  {
+    c->movdqa(dst0.x(), a0.c());
+    c->movdqa(dst1.x(), a1.c());
+    c->pmullw(dst0.r(), b0.r());
+    c->pmullw(dst1.r(), b1.r());
+    c->paddusw(dst0.r(), xmm0080().c());
+    c->paddusw(dst1.r(), xmm0080().c());
+    c->pmulhuw(dst0.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+    c->pmulhuw(dst1.r(), BLITJIT_GETCONST(this, _01010101010101010101010101010101));
+  }
+}
+
+void Generator::negate_1x1W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0)
+{
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+
+  c->pxor(dst0.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
+}
+
+void Generator::negate_2x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0,
+  const XMMRef& dst1, const XMMRef& src1)
+{
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+  if (dst1.v() != src1.v()) c->movdqa(dst1.x(), src1.c());
+
+  c->pxor(dst0.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
+  c->pxor(dst1.r(), BLITJIT_GETCONST(this, _00FF00FF00FF00FF00FF00FF00FF00FF));
 }
 
 void Generator::_PackedMultiplyWithAddition(
@@ -1900,67 +2110,6 @@ void Generator::_PackedMultiplyWithAddition(
   c->paddusw(a0.r(), t0.r());           // a0 += t0
   c->psrlw(a0.r(), 8);                  // a0 /= 256
   c->paddusw(a0.r(), b0.r());           // a0 += b0
-}
-
-void Generator::_PackedMultiply_4(
-  const XMMRef& a0, const XMMRef& b0, const XMMRef& t0,
-  const XMMRef& a1, const XMMRef& b1, const XMMRef& t1,
-  bool moveToT0T1)
-{
-  // Standard case
-  if (t0 != t1)
-  {
-    c->pmullw(a0.r(), b0.r());          // a0 *= b0
-    c->pmullw(a1.r(), b1.r());          // a1 *= b1
-
-    c->paddusw(a0.r(), xmm0080().c());  // a0 += 80
-    c->paddusw(a1.r(), xmm0080().c());  // a1 += 80
-
-    c->movdqa(t0.r(), a0.r());          // t0  = a0
-    c->psrlw(a0.r(), 8);                // a0 /= 256
-    c->movdqa(t1.r(), a1.r());          // t1  = a1
-    c->psrlw(a1.r(), 8);                // a1 /= 256
-
-    if (moveToT0T1)
-    {
-      c->paddusw(t0.r(), a0.r());       // t0 += a0
-      c->psrlw(t0.r(), 8);              // t0 /= 256
-
-      c->paddusw(t1.r(), a1.r());       // t1 += a1
-      c->psrlw(t1.r(), 8);              // t1 /= 256
-    }
-    else
-    {
-      c->paddusw(a0.r(), t0.r());       // a0 += t0
-      c->paddusw(a1.r(), t1.r());       // a1 += t1
-
-      c->psrlw(a0.r(), 8);              // a0 /= 256
-      c->psrlw(a1.r(), 8);              // a1 /= 256
-    }
-  }
-  // Special case if t0 is t1 (can be used to save one regiter if you
-  // haven't it)
-  else
-  {
-    // Can't be moved to t0 and t1 if they are same!
-    BLITJIT_ASSERT(moveToT0T1 == 0);
-
-    c->pmullw(a0.r(), b0.r());          // a0 *= b0
-    c->pmullw(a1.r(), b1.r());          // a1 *= b1
-    c->paddusw(a0.r(), xmm0080().c());  // a0 += 80
-    c->paddusw(a1.r(), xmm0080().c());  // a1 += 80
-
-    c->movdqa(t0.r(), a0.r());          // t   = a0
-    c->psrlw(a0.r(), 8);                // a0 /= 256
-    c->paddusw(a0.r(), t0.r());         // a0 += t
-
-    c->movdqa(t0.r(), a1.r());          // t   = a1
-    c->psrlw(a1.r(), 8);                // a1 /= 256
-    c->paddusw(a1.r(), t0.r());         // a1 += t
-
-    c->psrlw(a0.r(), 8);                // a0 /= 256
-    c->psrlw(a1.r(), 8);                // a1 /= 256
-  }
 }
 
 void Generator::_PackedMultiplyAdd(
@@ -2031,19 +2180,19 @@ void Generator::_PackedMultiplyAdd_4(
   }
 }
 
-void Generator::_Premultiply(
+void Generator::premultiply_1x1W_SSE2(
   const XMMRef& pix0, int alphaPos0, bool two)
 {
   XMMRef a0(c->newVariable(VARIABLE_TYPE_XMM));
 
   c->pshuflw(a0.r(), pix0.r(), mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
   c->pshufhw(a0.r(), a0.r()  , mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
-  c->por(a0.r(), BLITJIT_GETCONST_WITH_DISPLACEMENT(this, Cx00000000000000FF00000000000000FF, alphaPos0 * 16));
+  c->por(a0.r(), BLITJIT_GETCONST_WITH_DISPLACEMENT(this, _00000000000000FF00000000000000FF, alphaPos0 * 16));
 
-  _PackedMultiply(pix0, a0, a0);
+  mul_1x1W_SSE2(pix0, pix0, a0);
 }
 
-void Generator::_Premultiply_4(
+void Generator::premultiply_2x2W_SSE2(
   const XMMRef& pix0, int alphaPos0,
   const XMMRef& pix1, int alphaPos1)
 {
@@ -2054,15 +2203,15 @@ void Generator::_Premultiply_4(
   c->pshuflw(a1.r(), pix1.r(), mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
   c->pshufhw(a0.r(), a0.r()  , mm_shuffle(alphaPos0, alphaPos0, alphaPos0, alphaPos0));
   c->pshufhw(a1.r(), a1.r()  , mm_shuffle(alphaPos1, alphaPos1, alphaPos1, alphaPos1));
-  c->por(a0.r(), BLITJIT_GETCONST_WITH_DISPLACEMENT(this, Cx00000000000000FF00000000000000FF, alphaPos0 * 16));
-  c->por(a1.r(), BLITJIT_GETCONST_WITH_DISPLACEMENT(this, Cx00000000000000FF00000000000000FF, alphaPos1 * 16));
+  c->por(a0.r(), BLITJIT_GETCONST_WITH_DISPLACEMENT(this, _00000000000000FF00000000000000FF, alphaPos0 * 16));
+  c->por(a1.r(), BLITJIT_GETCONST_WITH_DISPLACEMENT(this, _00000000000000FF00000000000000FF, alphaPos1 * 16));
 
-  _PackedMultiply_4(
-    pix0, a0, a0,
-    pix1, a1, a1);
+  mul_2x2W_SSE2(
+    pix0, pix0, a0,
+    pix1, pix1, a1);
 }
 
-void Generator::_Demultiply(
+void Generator::demultiply_1x1W_SSE2(
   const XMMRef& pix0, Int32Ref& val0, int alphaPos0)
 {
   // TODO: Verify
@@ -2083,10 +2232,10 @@ void Generator::_Demultiply(
 
   // Demultiply using multiplication - fast.
   c->shr(val0.r(), imm(alphaPos0 * 8));
-  c->mov(base0.x(), BLITJIT_GETCONST(this, CxDemultiply[alphaPos0]));
+  c->mov(base0.x(), BLITJIT_GETCONST(this, _Demultiply[alphaPos0]));
   c->movq(a0.x(), ptr(base0.r(), val0.r(), TIMES_8));
 
-  _PackedMultiply(pix0, a0, a0);
+  mul_1x1W_SSE2(pix0, pix0, a0);
 
   // Here is label if pixel not needs to be demultiplied.
   c->bind(skip);

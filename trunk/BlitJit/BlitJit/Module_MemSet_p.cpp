@@ -125,7 +125,7 @@ void Module_MemSet32::processPixelsPtr(
 #if defined(ASMJIT_X64)
         if (i >= 2)
         {
-          g->_StoreMov(qword_ptr(dst->c(), dstDisp), srcgp.c64(), nt);
+          g->storeQ(qword_ptr(dst->c(), dstDisp), srcgp, nt);
 
           offset += 2;
           i -= 2;
@@ -133,7 +133,7 @@ void Module_MemSet32::processPixelsPtr(
         else
         {
 #endif // ASMJIT_X64
-          g->_StoreMov(dword_ptr(dst->c(), dstDisp), srcgp.c32(), nt);
+          g->storeD(dword_ptr(dst->c(), dstDisp), srcgp, nt);
 
           offset++;
           i--;
@@ -153,14 +153,14 @@ void Module_MemSet32::processPixelsPtr(
 
         if (i >= 2)
         {
-          g->_StoreMovQ(qword_ptr(dst->c(), dstDisp), srcmm.c(), nt);
+          g->storeQ(qword_ptr(dst->c(), dstDisp), srcmm, nt);
 
           offset += 2;
           i -= 2;
         }
         else
         {
-          g->_StoreMov(dword_ptr(dst->c(), dstDisp), srcgp.c32(), nt);
+          g->storeD(dword_ptr(dst->c(), dstDisp), srcgp, nt);
 
           offset++;
           i--;
@@ -179,14 +179,14 @@ void Module_MemSet32::processPixelsPtr(
 
         if (i >= 4)
         {
-          g->_StoreMovDQ(dqword_ptr(dst->c(), dstDisp), srcxmm.c(), nt, aligned);
+          g->storeDQ(dqword_ptr(dst->c(), dstDisp), srcxmm, nt, aligned);
 
           offset += 4;
           i -= 4;
         }
         else
         {
-          g->_StoreMov(dword_ptr(dst->c(), dstDisp), srcgp.c32(), nt);
+          g->storeD(dword_ptr(dst->c(), dstDisp), srcgp, nt);
 
           offset++;
           i--;

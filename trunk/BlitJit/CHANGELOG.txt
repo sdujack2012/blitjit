@@ -1,3 +1,6 @@
+2009-08-22
+- Refactorized some parts of library
+
 2009-04-05
 - Cleaned up code
 - Added composite / fill loop abstraction (now it's very easy to create complex
