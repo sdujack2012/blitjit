@@ -190,22 +190,12 @@ void Module_Blit_32_SSE2::processPixelsPtr(
         }
 
         g->loadDQ(dstpix0, ptr(dst->r(), dstDisp), dstAligned);
-
-        c->movdqa(srcpix1.r(), srcpix0.r());
-        c->punpcklbw(srcpix0.r(), g->xmmZero().r());
-
-        c->movdqa(dstpix1.r(), dstpix0.r());
-        c->punpckhbw(srcpix1.r(), g->xmmZero().r());
-
-        c->punpcklbw(dstpix0.r(), g->xmmZero().r());
-        c->punpckhbw(dstpix1.r(), g->xmmZero().r());
+        g->unpack_4x2W_SSE2(srcpix0, srcpix1, srcpix0, dstpix0, dstpix1, dstpix0);
 
         g->extractAlpha_2x2W_SSE2(t0, srcpix0, dstAlphaPos, true, t1, srcpix1, dstAlphaPos, true);
-
         g->mul_2x2W_SSE2(dstpix0, dstpix0, t0, dstpix1, dstpix1, t1);
         g->add_2x2W_SSE2(srcpix0, srcpix0, dstpix0, srcpix1, srcpix1, dstpix1);
-
-        c->packuswb(srcpix0.r(), srcpix1.r());
+        g->pack_2x2W_SSE2(srcpix0, srcpix0, srcpix1);
 
         c->bind(L_LocalLoopStore);
         g->storeDQ(ptr(dst->r(), dstDisp), srcpix0, false, dstAligned);
@@ -220,8 +210,6 @@ void Module_Blit_32_SSE2::processPixelsPtr(
         Label* L_LocalLoopExit = c->newLabel();
 
         g->loadDQ(srcpix0, ptr(src->r(), srcDisp), srcAligned);
-
-
         g->loadDQ(dstpix0, ptr(dst->r(), dstDisp), dstAligned);
 
         // Source and destination is in srcpix0 and dstpix0, also we want to
@@ -237,6 +225,74 @@ void Module_Blit_32_SSE2::processPixelsPtr(
       }
       break;
     }
+#if 0
+    // Testing only
+    case 8:
+    {
+      if (op->id() == Operator::CompositeOver)
+      {
+        // Need more variables to successfully parallelize instructions.
+        XMMRef dstpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef srcpix1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+        XMMRef dstpix2(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef dstpix3(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef srcpix2(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef srcpix3(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+        XMMRef t0(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef t1(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+        XMMRef t2(c->newVariable(VARIABLE_TYPE_XMM, 5));
+        XMMRef t3(c->newVariable(VARIABLE_TYPE_XMM, 5));
+
+        //Int32Ref srcpixi(c->newVariable(VARIABLE_TYPE_INT32));
+
+        //SysIntRef t(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
+        //SysIntRef k(c->newVariable(VARIABLE_TYPE_SYSINT, 0));
+
+        //Label* L_LocalLoopExit = c->newLabel();
+        //Label* L_LocalLoopStore = c->newLabel();
+
+        g->loadDQ(srcpix0, ptr(src->r(), srcDisp +  0), srcAligned);
+        g->loadDQ(srcpix2, ptr(src->r(), srcDisp + 16), srcAligned);
+/*
+        c->movdqa(srcpix1.x(), srcpix0.c());
+        c->movdqa(srcpix3.x(), srcpix2.c());
+        c->psrld(srcpix1.r(), imm(24));
+        c->psrld(srcpix3.r(), imm(24));
+        c->packuswb(srcpix1.r(), srcpix3.c());
+        c->packuswb(srcpix1.r(), srcpix1.c());
+        c->movq(t.x64(), srcpix1.r());
+
+        c->cmp(t.x64(), uimm(0x0000000000000000));
+        c->jz(L_LocalLoopExit);
+
+        c->cmp(t.x64(), uimm(0xFFFFFFFFFFFFFFFF));
+        c->jz(L_LocalLoopStore);
+*/
+        g->loadDQ(dstpix0, ptr(dst->r(), dstDisp +  0), dstAligned);
+        g->loadDQ(dstpix2, ptr(dst->r(), dstDisp + 16), dstAligned);
+        g->unpack_4x2W_SSE2(srcpix0, srcpix1, srcpix0, dstpix0, dstpix1, dstpix0);
+        g->unpack_4x2W_SSE2(srcpix2, srcpix3, srcpix2, dstpix2, dstpix3, dstpix2);
+
+        g->extractAlpha_2x2W_SSE2(t0, srcpix0, dstAlphaPos, true, t1, srcpix1, dstAlphaPos, true);
+        g->mul_2x2W_SSE2(dstpix0, dstpix0, t0, dstpix1, dstpix1, t1);
+        g->extractAlpha_2x2W_SSE2(t2, srcpix2, dstAlphaPos, true, t3, srcpix3, dstAlphaPos, true);
+        g->add_2x2W_SSE2(srcpix0, srcpix0, dstpix0, srcpix1, srcpix1, dstpix1);
+        g->mul_2x2W_SSE2(dstpix2, dstpix2, t2, dstpix3, dstpix3, t3);
+        g->pack_2x2W_SSE2(srcpix0, srcpix0, srcpix1);
+        g->add_2x2W_SSE2(srcpix2, srcpix2, dstpix2, srcpix3, srcpix3, dstpix3);
+        g->pack_2x2W_SSE2(srcpix2, srcpix2, srcpix3);
+
+        //c->bind(L_LocalLoopStore);
+        g->storeDQ(ptr(dst->r(), dstDisp +  0), srcpix0, false, dstAligned);
+        g->storeDQ(ptr(dst->r(), dstDisp + 16), srcpix2, false, dstAligned);
+        //c->bind(L_LocalLoopExit);
+      }
+      break;
+    }
+#endif
   }
 }
 

@@ -284,6 +284,22 @@ struct BLITJIT_API Generator : public GeneratorBase
     const XMMRef& dst1, const XMMRef& src1, int alphaPos1,
     const Operator* op);
 
+  void unpack_1x1W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0);
+
+  void unpack_2x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& dst1, const XMMRef& src0);
+
+  void unpack_4x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& dst1, const XMMRef& src0,
+    const XMMRef& dst2, const XMMRef& dst3, const XMMRef& src2);
+
+  void pack_1x1W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0);
+
+  void pack_2x2W_SSE2(
+    const XMMRef& dst0, const XMMRef& src0, const XMMRef& src1);
+
   //! @brief Extract alpha channel.
   //! @param dst0 Destination XMM register (can be same as @a src).
   //! @param src0 Source XMM register.

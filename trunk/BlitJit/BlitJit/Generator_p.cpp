@@ -1942,6 +1942,70 @@ void Generator::composite_2x2W_SSE2(
   }
 }
 
+void Generator::unpack_1x1W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0)
+{
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+
+  c->punpcklbw(dst0.r(), xmmZero().r());
+}
+
+void Generator::unpack_2x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& dst1, const XMMRef& src0)
+{
+  BLITJIT_ASSERT(dst0.v() != dst1.v());
+
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+  if (dst1.v() != src0.v()) c->movdqa(dst1.x(), src0.c());
+
+  c->punpcklbw(dst0.r(), xmmZero().r());
+  c->punpckhbw(dst1.r(), xmmZero().r());
+}
+
+void Generator::unpack_4x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& dst1, const XMMRef& src0,
+  const XMMRef& dst2, const XMMRef& dst3, const XMMRef& src2)
+{
+  BLITJIT_ASSERT(dst0.v() != dst1.v());
+  BLITJIT_ASSERT(dst2.v() != dst3.v());
+/*
+  c->movhlps(dst1.x(), src0.c());
+  c->movhlps(dst3.x(), src2.c());
+
+  c->punpcklbw(dst0.r(), xmmZero().r());
+  c->punpcklbw(dst1.r(), xmmZero().r());
+
+  c->punpcklbw(dst2.r(), xmmZero().r());
+  c->punpcklbw(dst3.r(), xmmZero().r());
+*/
+
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+  if (dst1.v() != src0.v()) c->movdqa(dst1.x(), src0.c());
+
+  if (dst2.v() != src2.v()) c->movdqa(dst2.x(), src2.c());
+  if (dst3.v() != src2.v()) c->movdqa(dst3.x(), src2.c());
+
+  c->punpcklbw(dst0.r(), xmmZero().r());
+  c->punpckhbw(dst1.r(), xmmZero().r());
+
+  c->punpcklbw(dst2.r(), xmmZero().r());
+  c->punpckhbw(dst3.r(), xmmZero().r());
+
+}
+
+void Generator::pack_1x1W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0)
+{
+  c->packuswb(dst0.r(), src0.r());
+}
+
+void Generator::pack_2x2W_SSE2(
+  const XMMRef& dst0, const XMMRef& src0, const XMMRef& src1)
+{
+  if (dst0.v() != src0.v()) c->movdqa(dst0.x(), src0.c());
+  c->packuswb(dst0.r(), src1.r());
+}
+
 void Generator::extractAlpha_1x1W_SSE2(
   const XMMRef& dst0, const XMMRef& src0, UInt8 alphaPos0, UInt8 negate0, bool two)
 {
