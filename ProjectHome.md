@@ -1,0 +1,1 @@
+BlitJit ideas contributed to http://blend2d.com development.
